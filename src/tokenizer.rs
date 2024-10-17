@@ -53,7 +53,7 @@ fn split_words(input: &str) -> Vec<(i64, i64, String)> {
     fn split_recursive(mut input: Chars, mut total: Vec<String>, current: String) -> Vec<String> {
         let Some(ch) = input.next() else { return total };
         if current.chars().next() == Some('\"') {
-            if ch == '\"' {
+            if ch == '\"' && current.chars().last() != Some('\\') {
                 total.push(format!("{}{}", current, ch));
                 return split_recursive(input, total, String::new());
             } else {

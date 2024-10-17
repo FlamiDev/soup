@@ -68,8 +68,8 @@ let johns_account = ("John", (day: 5, month: 8, year: 1990), "john@example.com",
 let Account (email, password_hash) = johns_account
 
 // in prelude
-trait Display a = (
-	to_string: a -> String
+trait Display A = (
+	to_string: A -> String
 )
 
 let to_string a:Day = todo "too lazy to implement"

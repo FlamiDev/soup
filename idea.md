@@ -37,6 +37,15 @@
 - Auto constructors
 - Auto derive
 
+- Test blocks support Tiger-Style Deterministic Simulation Testing (DST)
+  - Inside test block `seed` is a random int
+  - Run tests with `language file.lang --test 300` to get 300 random tests
+  - Compile error if some asserts in code aren't called in any test block
+- Number overflow and underflow trips asserts
+- Asserts also run in production functions
+  - Stop complete program if assert fails
+    - Print what and why but also complete stack, functions and values (using default type formatting because program is gone)
+
 - Import from C and maybe Rust?
 - `use <-` from Gleam? Could be useful for async I/O
 - Custom iterators not necessarily based on lists

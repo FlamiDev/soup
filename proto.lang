@@ -22,14 +22,14 @@ let or a:Result _ b = a match {
 
 doc "Divides every element in a by b, or 0 if b is 0"
 test "normal division" {
-	assert div_map [1, 2, 3] 2 == [0, 1, 1]
+	assert [1, 2, 3] div_map 2 == [0, 1, 1]
 }
 test "division by 0" {
-	assert div_map [1, 2, 3] 0 == [0, 0, 0]
+	assert [1, 2, 3] div_map 0 == [0, 0, 0]
 }
 test "empty list" {
 	mock map l f = l map (x -> x println; x f)
-	assert div_map [] 2 == []
+	assert [] div_map 2 == []
 }
 let div_map a:List Int b:Int = a map (x -> x div b or 0)
 

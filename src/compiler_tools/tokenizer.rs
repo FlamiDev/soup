@@ -47,7 +47,7 @@ fn split_words(input: &str) -> Vec<(i64, i64, String)> {
             res.push("\n".to_string());
             res.iter()
                 .enumerate()
-                .map(|(i, word)| (line_no as i64, i as i64, word.to_string()))
+                .map(|(i, word)| (line_no as i64 + 1, i as i64 + 1, word.to_string()))
                 .collect::<Vec<(i64, i64, String)>>()
         })
         .collect();

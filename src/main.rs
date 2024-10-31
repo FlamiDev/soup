@@ -1,16 +1,19 @@
+use parser::ParseError;
+
 #[macro_use]
 mod compiler_tools;
 mod parser;
 mod tokenizer;
 
-use crate::parser::{is_error, is_error_level, AST};
-
 fn main() {
     let mut args: Vec<String> = std::env::args().collect();
-    let Some(file) = args.pop() else {
+    args.remove(0);
+    let Some((file, args)) = args.split_first() else {
         print!("No input file given");
         return;
     };
+    let verbose_mode = args.contains(&"verbose".to_string()) || args.contains(&"v".to_string());
+
     println!("Reading file {}", file);
     let Ok(input) = std::fs::read_to_string(file) else {
         println!("Could not read file");
@@ -27,27 +30,34 @@ fn main() {
         return;
     }
 
-    println!("DEBUG -- Tokens:");
-    for token in &tokens {
-        println!("{token:?}");
+    if verbose_mode {
+        print!("Tokens:");
+        for token in &tokens {
+            if token.word_no == 1 {
+                println!();
+                print!("{} | ", token.line_no);
+            }
+            print!("{:?} ", token.token);
+        }
+        println!();
     }
 
     let ast = parser::parse(&tokens);
     println!("DEBUG -- AST:");
-    match ast {
-        AST::Root(body) => {
-            println!(
-                "{:?}",
-                body.iter().filter(|e| !is_error(e)).collect::<Vec<&AST>>()
-            );
-            println!("ERRORS:");
-            println!(
-                "{:?}",
-                body.iter()
-                    .filter(|e| is_error_level(e, 0))
-                    .collect::<Vec<&AST>>()
-            );
+    println!(">>>>>>>>>> TYPES <<<<<<<<<<");
+    println!("{:#?}", ast.types);
+    println!(">>>>>>>>>> VALUES <<<<<<<<<<");
+    println!("{:#?}", ast.values);
+    println!(">>>>>>>>>> ERRORS <<<<<<<<<<");
+    println!(
+        "{:#?}",
+        if verbose_mode {
+            ast.errors
+        } else {
+            ast.errors
+                .into_iter()
+                .filter(|e| e.priority >= 0)
+                .collect::<Vec<ParseError>>()
         }
-        _ => {}
-    }
+    );
 }

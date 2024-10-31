@@ -3,152 +3,175 @@ use std::collections::VecDeque;
 use crate::{compiler_tools::tokenizer::PositionedToken, tokenizer::Token};
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum AST {
-    Root(Vec<AST>),
-    TypeDecl {
-        name: Box<AST>,
-        args: Vec<AST>,
-        value: Box<AST>,
-    },
-    UnionType(Vec<AST>),
-    UnionPart {
-        label: Box<AST>,
-        content: Box<AST>,
-    },
-    TupleType(Vec<AST>),
-    TypedParam {
-        name: Box<AST>,
-        type_name: Box<AST>,
-    },
-    LetAssignment {
-        name: Box<AST>,
-        value: Box<AST>,
-    },
+pub struct Root {
+    pub types: Vec<TypeDef>,
+    pub values: Vec<ValueDef>,
+    pub errors: Vec<ParseError>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct TypeDef {
+    pub name: String,
+    pub args: Vec<String>,
+    pub value: Type,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Type {
+    Union(Vec<UnionPart>),
+    Tuple(Vec<TypeRef>),
+    NamedTuple(Vec<(String, TypeRef)>),
+    JoinedTuples(Vec<TypeRef>, Vec<TypeRef>),
+    JoinedNamedTuples(Vec<TypeRef>, Vec<(String, TypeRef)>),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct TypeRef(pub String, pub Vec<TypeRef>);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct UnionPart {
+    pub label: String,
+    pub content: Type,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum ValueDef {
+    Standard(String, Value),
+    Exported(String, Value),
+    Destructure(Vec<String>, Value),
+    Matched(String, String, Value),
+    MatchedDestructure(String, Vec<String>, Value),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Value {
     Function {
-        args: Vec<AST>,
-        body: Box<AST>,
+        doc: String,
+        tests: Vec<Block>,
+        args: Vec<String>,
+        body: Block,
     },
-    FunctionBody(Vec<AST>),
-    FunctionCall {
-        name: Box<AST>,
-        args: Vec<AST>,
-    },
-    MatchOp {
-        value: Box<AST>,
-        options: Vec<AST>,
-    },
-    MatchCase {
-        matcher: Box<AST>,
-        body: Box<AST>,
-    },
-    LabelMatcher {
-        label: Box<AST>,
-        values: Vec<AST>,
-    },
-    Documented {
-        doc: Box<AST>,
-        tests: Vec<AST>,
-        body: Box<AST>,
-    },
-    DocString(String),
-    TestBlock {
-        test_name: String,
-        body: Box<AST>,
-    },
-    TestAssert(Box<AST>),
-    TestMock {
-        replace: Box<AST>,
-        with: Box<AST>,
-    },
-    Import(Box<AST>),
-    Export(Box<AST>),
-    Construction(Vec<AST>),
-    Destruction {
-        type_name: Box<AST>,
-        values: Vec<AST>,
-    },
-    LabeledValue(Box<AST>, Box<AST>),
-    TypeName(String),
-    ValueName(String),
+    Import(String),
+    Construction(Vec<Value>),
+    NamedConstruction(Vec<(String, Value)>),
     Int(i64),
     Float(f64),
     String(String),
-    InterpolatedString(Vec<AST>),
-    Trait(Box<AST>, Vec<AST>, Box<AST>),
-    SyntaxError(i64, i64, Token, String, i64),
+    InterpolatedString(Vec<Value>),
+    RefName(String),
+    Match(String, Vec<MatchCase>),
+    FunctionCall(String, Vec<Value>),
+    UnparsedCallChain(Vec<Token>),
 }
 
-pub fn is_error(ast: &AST) -> bool {
-    match ast {
-        AST::SyntaxError(..) => true,
-        _ => false,
-    }
+#[derive(Debug, PartialEq, Clone)]
+pub struct MatchCase {
+    pub matcher_label: String,
+    pub matcher_values: Vec<String>,
+    pub body: Block,
 }
 
-pub fn is_error_level(ast: &AST, level: i64) -> bool {
-    match ast {
-        AST::SyntaxError(.., priority) if *priority >= level => true,
-        _ => false,
-    }
+#[derive(Debug, PartialEq, Clone)]
+pub struct Block {
+    pub instructions: Vec<Instruction>,
+    pub returns: Box<Value>,
 }
 
-fn error_priority(
+#[derive(Debug, PartialEq, Clone)]
+pub enum Instruction {
+    ValueDef(ValueDef),
+    Assert(Value),
+    Mock(String, Value),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ParseError {
+    pub line_no: i64,
+    pub word_no: i64,
+    pub token: Token,
+    pub why: String,
+    pub priority: i64,
+}
+
+enum ParserReturn<T> {
+    Some(VecDeque<PositionedToken<Token>>, Result<T, ParseError>),
+    None,
+}
+
+fn error_err<T>(token: PositionedToken<Token>, why: &str, priority: i64) -> Result<T, ParseError> {
+    Err(ParseError {
+        line_no: token.line_no,
+        word_no: token.word_no,
+        token: token.token,
+        why: why.to_string(),
+        priority,
+    })
+}
+
+fn error_priority<T>(
     tokens: VecDeque<PositionedToken<Token>>,
     token: PositionedToken<Token>,
     why: &str,
     priority: i64,
-) -> Option<(VecDeque<PositionedToken<Token>>, AST)> {
-    Some((
-        tokens,
-        AST::SyntaxError(
-            token.line_no,
-            token.word_no,
-            token.token,
-            why.to_string(),
-            priority,
-        ),
-    ))
+) -> ParserReturn<T> {
+    ParserReturn::Some(tokens, error_err(token, why, priority))
 }
 
-fn error(
+fn error<T>(
     tokens: VecDeque<PositionedToken<Token>>,
     token: PositionedToken<Token>,
     why: &str,
-) -> Option<(VecDeque<PositionedToken<Token>>, AST)> {
+) -> ParserReturn<T> {
     error_priority(tokens, token, why, 0)
 }
 
-pub fn parse(tokens: &Vec<PositionedToken<Token>>) -> AST {
+pub fn parse(tokens: &Vec<PositionedToken<Token>>) -> Root {
     let mut tokens = VecDeque::from(tokens.clone());
-    let mut body = Vec::new();
+    let mut types = Vec::new();
+    let mut values = Vec::new();
+    let mut errors = Vec::new();
     while !tokens.is_empty() {
-        if let Some((t, b)) = one_of!(tokens, parse_type_decl, parse_let_decl) {
+        if let ParserReturn::Some(t, res) = parse_type_def(&tokens) {
             tokens = t;
-            body.push(b);
-        } else {
-            if let Some(invalid) = tokens.pop_front() {
-                body.push(AST::SyntaxError(
-                    invalid.line_no,
-                    invalid.word_no,
-                    invalid.token,
-                    "Unexpected token at the top level".to_string(),
-                    -100,
-                ));
-            } else {
-                break;
+            match res {
+                Ok(t) => types.push(t),
+                Err(e) => errors.push(e),
             }
-        }
+            continue;
+        };
+        if let ParserReturn::Some(t, res) = parse_value_def(&tokens) {
+            tokens = t;
+            match res {
+                Ok(v) => values.push(v),
+                Err(e) => errors.push(e),
+            }
+            continue;
+        };
+        let Some(token) = tokens.pop_front() else {
+            break;
+        };
+        errors.push(ParseError {
+            line_no: token.line_no,
+            word_no: token.word_no,
+            token: token.token,
+            why: "Unexpected token at the top level".to_string(),
+            priority: -100,
+        });
     }
-    AST::Root(body)
+    Root {
+        types,
+        values,
+        errors,
+    }
 }
 
-fn parse_type_decl(
-    tokens: &VecDeque<PositionedToken<Token>>,
-) -> Option<(VecDeque<PositionedToken<Token>>, AST)> {
+fn parse_type_def(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<TypeDef> {
     let mut tokens = tokens.clone();
-    let type_keyword = tokens.pop_front()?;
+    let Some(type_keyword) = tokens.pop_front() else {
+        return ParserReturn::None;
+    };
     if type_keyword.token != Token::TypeKeyword {
-        return None;
+        return ParserReturn::None;
     }
     let Some(name_token) = tokens.pop_front() else {
         return error(tokens, type_keyword, "Expected type name");
@@ -162,7 +185,7 @@ fn parse_type_decl(
             tokens.push_front(token);
             break;
         };
-        args.push(AST::TypeName(arg));
+        args.push(arg);
     }
     let Some(equals_token) = tokens.pop_front() else {
         return error(tokens, name_token, "Expected equals sign");
@@ -170,78 +193,216 @@ fn parse_type_decl(
     let Token::EqualsSign = equals_token.token else {
         return error(tokens, equals_token, "Expected equals sign");
     };
-    let Some((tokens, body)) = parse_type(&tokens) else {
+    let ParserReturn::Some(tokens, body) = parse_type(&tokens) else {
         return error(tokens, equals_token, "Expected type body");
     };
-    Some((
+    ParserReturn::Some(
         tokens,
-        AST::TypeDecl {
-            name: Box::new(AST::TypeName(name.clone())),
-            args: args,
-            value: Box::new(body),
-        },
-    ))
+        body.map(|t| TypeDef {
+            name: name.clone(),
+            args,
+            value: t,
+        }),
+    )
 }
 
-fn parse_type(
-    tokens: &VecDeque<PositionedToken<Token>>,
-) -> Option<(VecDeque<PositionedToken<Token>>, AST)> {
-    let first = tokens.front()?;
+fn parse_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<Type> {
+    let Some(first) = tokens.front() else {
+        return ParserReturn::None;
+    };
+    let second = tokens.get(1);
     match first.token {
         Token::ParenOpen => parse_tuple_type(tokens),
-        Token::Type(_) => parse_union_type(tokens),
-        _ => None,
+        Token::Type(_) => match second {
+            Some(PositionedToken {
+                line_no: _,
+                word_no: _,
+                token: Token::Plus,
+            }) => parse_joined_tuple_type(tokens),
+            Some(PositionedToken {
+                line_no: _,
+                word_no: _,
+                token: Token::Type(_),
+            }) => parse_union_type(tokens),
+            Some(PositionedToken {
+                line_no: _,
+                word_no: _,
+                token: Token::VerticalBar,
+            }) => parse_union_type(tokens),
+            _ => ParserReturn::None,
+        },
+        _ => ParserReturn::None,
     }
 }
 
-fn parse_tuple_type(
-    tokens: &VecDeque<PositionedToken<Token>>,
-) -> Option<(VecDeque<PositionedToken<Token>>, AST)> {
+fn parse_joined_tuple_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<Type> {
     let mut tokens = tokens.clone();
-    let open_paren = tokens.pop_front()?;
+    let mut current_type = VecDeque::new();
+    let mut joined = Vec::new();
+    while let Some(token) = tokens.pop_front() {
+        match token.token {
+            Token::Type(_) => {
+                current_type.push_back(token);
+            }
+            Token::Plus => {
+                let Some(t) = parse_type_ref(&current_type) else {
+                    return error(tokens, token, "Expected type");
+                };
+                joined.push(t);
+                current_type.clear();
+            }
+            Token::ParenOpen => {
+                tokens.push_front(token.clone());
+                let ParserReturn::Some(t, tuple) = parse_tuple_type(&tokens) else {
+                    return error(tokens, token, "Expected tuple type");
+                };
+                tokens = t;
+                return ParserReturn::Some(
+                    tokens,
+                    tuple.and_then(|t| match t {
+                        Type::Tuple(args) => Ok(Type::JoinedTuples(joined, args)),
+                        Type::NamedTuple(args) => Ok(Type::JoinedNamedTuples(joined, args)),
+                        _ => error_err(token, "Expected tuple type", 0),
+                    }),
+                );
+            }
+            _ => {
+                return error(tokens, token, "Expected type or plus sign");
+            }
+        }
+    }
+    ParserReturn::None
+}
+
+fn parse_tuple_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<Type> {
+    let mut tokens = tokens.clone();
+    let Some(open_paren) = tokens.pop_front() else {
+        return ParserReturn::None;
+    };
     let Token::ParenOpen = open_paren.token else {
         return error(tokens, open_paren, "Expected opening paren");
     };
     let mut args = Vec::new();
+    let mut named_args = Vec::new();
+    let mut current_name = String::new();
+    let mut current_type = VecDeque::new();
     while let Some(token) = tokens.pop_front() {
         match token.token {
-            Token::Type(arg) => {
-                args.push(AST::TypeName(arg));
-            }
-            Token::Name(ref arg) => {
-                let Token::Colon = tokens.pop_front()?.token else {
-                    return error(tokens, token, "Expected colon");
-                };
-                let Token::Type(type_) = tokens.pop_front()?.token else {
-                    return error(tokens, token, "Expected type name");
-                };
-                args.push(AST::TypedParam {
-                    name: Box::new(AST::ValueName(arg.clone())),
-                    type_name: Box::new(AST::TypeName(type_)),
-                });
+            Token::Name(ref name) => {
+                if !current_name.is_empty() {
+                    return error(tokens, token, "Expected type or closing paren");
+                }
+                current_name = name.clone();
             }
             Token::Comma => {
-                // TODO Why are commas here if they don't have any meaning whatsoever?!
+                let Some(t) = parse_type_ref(&current_type) else {
+                    return error(tokens, token, "Expected type");
+                };
+                if current_name.is_empty() {
+                    args.push(t);
+                } else {
+                    named_args.push((current_name.clone(), t));
+                }
+                current_name.clear();
             }
             Token::ParenClose => {
+                let paren_open_count = current_type
+                    .iter()
+                    .filter(|t| t.token == Token::ParenOpen)
+                    .count();
+                let paren_close_count = current_type
+                    .iter()
+                    .filter(|t| t.token == Token::ParenClose)
+                    .count();
+                if paren_open_count < paren_close_count {
+                    return error(tokens, token, "Unexpected closing paren");
+                }
+                if paren_open_count > paren_close_count {
+                    current_type.push_back(token);
+                    continue;
+                }
+                let Some(t) = parse_type_ref(&current_type) else {
+                    return error(tokens, token, "Expected type");
+                };
+                if current_name.is_empty() {
+                    args.push(t);
+                } else {
+                    named_args.push((current_name.clone(), t));
+                }
                 break;
             }
             _ => {
-                return error(tokens, token, "Expected type, name or closing paren");
+                current_type.push_back(token);
             }
         }
     }
-    Some((tokens, AST::TupleType(args)))
+    if !args.is_empty() {
+        if !named_args.is_empty() {
+            error(
+                tokens,
+                open_paren,
+                "Cannot mix named and unnamed tuple arguments",
+            )
+        } else {
+            ParserReturn::Some(tokens, Ok(Type::Tuple(args)))
+        }
+    } else if !named_args.is_empty() {
+        ParserReturn::Some(tokens, Ok(Type::NamedTuple(named_args)))
+    } else {
+        error(tokens, open_paren, "Expected tuple arguments")
+    }
 }
 
-fn parse_union_type(
-    tokens: &VecDeque<PositionedToken<Token>>,
-) -> Option<(VecDeque<PositionedToken<Token>>, AST)> {
-    None
+fn parse_union_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<Type> {
+    ParserReturn::None
 }
 
-fn parse_let_decl(
-    tokens: &VecDeque<PositionedToken<Token>>,
-) -> Option<(VecDeque<PositionedToken<Token>>, AST)> {
-    None
+fn parse_type_ref(tokens: &VecDeque<PositionedToken<Token>>) -> Option<TypeRef> {
+    let mut tokens = tokens.clone();
+    let Some(first) = tokens.pop_front() else {
+        return None;
+    };
+    let Token::Type(name) = first.token else {
+        return None;
+    };
+    let mut type_args = Vec::new();
+    let mut nested = VecDeque::new();
+    while let Some(token) = tokens.pop_front() {
+        match token.token {
+            Token::Type(ref arg) => {
+                if nested.is_empty() {
+                    type_args.push(TypeRef(arg.clone(), Vec::new()));
+                } else {
+                    nested.push_back(token);
+                }
+            }
+            Token::Underscore => {
+                if nested.is_empty() {
+                    type_args.push(TypeRef("_".to_string(), Vec::new()));
+                } else {
+                    nested.push_back(token);
+                }
+            }
+            Token::ParenOpen => {
+                nested.push_back(token);
+            }
+            Token::ParenClose => {
+                nested.pop_front();
+                if !nested.is_empty() {
+                    let Some(t) = parse_type_ref(&nested) else {
+                        return None;
+                    };
+                    type_args.push(t);
+                }
+            }
+            _ => {
+                return None;
+            }
+        }
+    }
+    Some(TypeRef(name, type_args.to_vec()))
+}
+
+fn parse_value_def(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<ValueDef> {
+    ParserReturn::None
 }

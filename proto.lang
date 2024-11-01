@@ -10,13 +10,13 @@ type Result A B = Ok A | Err B
 
 // in prelude
 let or a Option _ b = a match {
-	Some a -> a,
+	Some a -> a
 	None -> b
 }
 
 // in prelude
 let or a Result _ b = a match {
-	Ok a -> a,
+	Ok a -> a
 	Err _ -> b
 }
 
@@ -34,7 +34,7 @@ test "empty list" {
 let div_map a List Int b Int = a map (x -> x div b or 0)
 
 let sum = ? match {
-	[] -> 0,
+	[] -> 0
 	[x, ..xs] -> x + sum! xs
 }
 

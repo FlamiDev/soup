@@ -18,7 +18,7 @@ pub struct TypeDef {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Type {
-    Union(Vec<UnionPart>),
+    Union(Vec<TypeRef>),
     Tuple(Vec<TypeRef>),
     NamedTuple(Vec<(String, TypeRef)>),
     JoinedTuples(Vec<TypeRef>, Vec<TypeRef>),
@@ -27,12 +27,6 @@ pub enum Type {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct TypeRef(pub String, pub Vec<TypeRef>);
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct UnionPart {
-    pub label: String,
-    pub content: Type,
-}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ValueDef {
@@ -91,6 +85,7 @@ pub struct ParseError {
     pub token: Token,
     pub why: String,
     pub priority: i64,
+    pub parser_line: u32,
 }
 
 enum ParserReturn<T> {
@@ -98,13 +93,19 @@ enum ParserReturn<T> {
     None,
 }
 
-fn error_err<T>(token: PositionedToken<Token>, why: &str, priority: i64) -> Result<T, ParseError> {
+fn error_err<T>(
+    token: PositionedToken<Token>,
+    why: &str,
+    line: u32,
+    priority: i64,
+) -> Result<T, ParseError> {
     Err(ParseError {
         line_no: token.line_no,
         word_no: token.word_no,
         token: token.token,
         why: why.to_string(),
         priority,
+        parser_line: line,
     })
 }
 
@@ -112,17 +113,28 @@ fn error_priority<T>(
     tokens: VecDeque<PositionedToken<Token>>,
     token: PositionedToken<Token>,
     why: &str,
+    line: u32,
     priority: i64,
 ) -> ParserReturn<T> {
-    ParserReturn::Some(tokens, error_err(token, why, priority))
+    ParserReturn::Some(tokens, error_err(token, why, line, priority))
 }
 
 fn error<T>(
     tokens: VecDeque<PositionedToken<Token>>,
     token: PositionedToken<Token>,
     why: &str,
+    line: u32,
 ) -> ParserReturn<T> {
-    error_priority(tokens, token, why, 0)
+    error_priority(tokens, token, why, line, 0)
+}
+
+macro_rules! error {
+    ($tokens:expr, $token:expr, $why:expr) => {
+        return error($tokens, $token, $why, line!())
+    };
+    ($tokens:expr, $token:expr, $why:expr, $priority:expr) => {
+        return error_priority($tokens, $token, $why, line!(), $priority)
+    };
 }
 
 pub fn parse(tokens: &Vec<PositionedToken<Token>>) -> Root {
@@ -156,6 +168,7 @@ pub fn parse(tokens: &Vec<PositionedToken<Token>>) -> Root {
             token: token.token,
             why: "Unexpected token at the top level".to_string(),
             priority: -100,
+            parser_line: line!(),
         });
     }
     Root {
@@ -174,10 +187,10 @@ fn parse_type_def(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<Typ
         return ParserReturn::None;
     }
     let Some(name_token) = tokens.pop_front() else {
-        return error(tokens, type_keyword, "Expected type name");
+        error!(tokens, type_keyword, "Expected type name");
     };
     let Token::Type(ref name) = name_token.token else {
-        return error(tokens, name_token, "Expected type name");
+        error!(tokens, name_token, "Expected type name");
     };
     let mut args = Vec::new();
     while let Some(token) = tokens.pop_front() {
@@ -188,13 +201,13 @@ fn parse_type_def(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<Typ
         args.push(arg);
     }
     let Some(equals_token) = tokens.pop_front() else {
-        return error(tokens, name_token, "Expected equals sign");
+        error!(tokens, name_token, "Expected equals sign");
     };
     let Token::EqualsSign = equals_token.token else {
-        return error(tokens, equals_token, "Expected equals sign");
+        error!(tokens, equals_token, "Expected equals sign");
     };
     let ParserReturn::Some(tokens, body) = parse_type(&tokens) else {
-        return error(tokens, equals_token, "Expected type body");
+        error!(tokens, equals_token, "Expected type body");
     };
     ParserReturn::Some(
         tokens,
@@ -246,7 +259,7 @@ fn parse_joined_tuple_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserR
             }
             Token::Plus => {
                 let Some(t) = parse_type_ref(&current_type) else {
-                    return error(tokens, token, "Expected type");
+                    error!(tokens, token, "Expected type");
                 };
                 joined.push(t);
                 current_type.clear();
@@ -254,7 +267,7 @@ fn parse_joined_tuple_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserR
             Token::ParenOpen => {
                 tokens.push_front(token.clone());
                 let ParserReturn::Some(t, tuple) = parse_tuple_type(&tokens) else {
-                    return error(tokens, token, "Expected tuple type");
+                    error!(tokens, token, "Expected tuple type");
                 };
                 tokens = t;
                 return ParserReturn::Some(
@@ -262,12 +275,12 @@ fn parse_joined_tuple_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserR
                     tuple.and_then(|t| match t {
                         Type::Tuple(args) => Ok(Type::JoinedTuples(joined, args)),
                         Type::NamedTuple(args) => Ok(Type::JoinedNamedTuples(joined, args)),
-                        _ => error_err(token, "Expected tuple type", 0),
+                        _ => error_err(token, "Expected tuple type", line!(), 0),
                     }),
                 );
             }
             _ => {
-                return error(tokens, token, "Expected type or plus sign");
+                error!(tokens, token, "Expected type or plus sign");
             }
         }
     }
@@ -280,7 +293,7 @@ fn parse_tuple_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<T
         return ParserReturn::None;
     };
     let Token::ParenOpen = open_paren.token else {
-        return error(tokens, open_paren, "Expected opening paren");
+        error!(tokens, open_paren, "Expected opening paren");
     };
     let mut args = Vec::new();
     let mut named_args = Vec::new();
@@ -290,13 +303,13 @@ fn parse_tuple_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<T
         match token.token {
             Token::Name(ref name) => {
                 if !current_name.is_empty() {
-                    return error(tokens, token, "Expected type or closing paren");
+                    error!(tokens, token, "Expected type or closing paren");
                 }
                 current_name = name.clone();
             }
             Token::Comma => {
                 let Some(t) = parse_type_ref(&current_type) else {
-                    return error(tokens, token, "Expected type");
+                    error!(tokens, token, "Expected type");
                 };
                 if current_name.is_empty() {
                     args.push(t);
@@ -315,14 +328,14 @@ fn parse_tuple_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<T
                     .filter(|t| t.token == Token::ParenClose)
                     .count();
                 if paren_open_count < paren_close_count {
-                    return error(tokens, token, "Unexpected closing paren");
+                    error!(tokens, token, "Unexpected closing paren");
                 }
                 if paren_open_count > paren_close_count {
                     current_type.push_back(token);
                     continue;
                 }
                 let Some(t) = parse_type_ref(&current_type) else {
-                    return error(tokens, token, "Expected type");
+                    error!(tokens, token, "Expected type");
                 };
                 if current_name.is_empty() {
                     args.push(t);
@@ -338,10 +351,9 @@ fn parse_tuple_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<T
     }
     if !args.is_empty() {
         if !named_args.is_empty() {
-            error(
+            error!(
                 tokens,
-                open_paren,
-                "Cannot mix named and unnamed tuple arguments",
+                open_paren, "Cannot mix named and unnamed tuple arguments"
             )
         } else {
             ParserReturn::Some(tokens, Ok(Type::Tuple(args)))
@@ -349,12 +361,62 @@ fn parse_tuple_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<T
     } else if !named_args.is_empty() {
         ParserReturn::Some(tokens, Ok(Type::NamedTuple(named_args)))
     } else {
-        error(tokens, open_paren, "Expected tuple arguments")
+        error!(tokens, open_paren, "Expected tuple arguments")
     }
 }
 
 fn parse_union_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<Type> {
-    ParserReturn::None
+    let mut tokens = tokens.clone();
+    let mut parts = Vec::new();
+    let mut current_part = VecDeque::new();
+    while let Some(token) = tokens.pop_front() {
+        match token.token {
+            Token::Type(_) => {
+                current_part.push_back(token);
+            }
+            Token::Underscore => {
+                current_part.push_back(token);
+            }
+            Token::ParenOpen => {
+                current_part.push_back(token);
+            }
+            Token::ParenClose => {
+                current_part.push_back(token);
+            }
+            Token::VerticalBar => {
+                if current_part.is_empty() {
+                    error!(tokens, token, "Expected labelled type");
+                }
+                let Some(t) = parse_type_ref(&current_part) else {
+                    error!(tokens, token, "Expected valid labelled type");
+                };
+                parts.push(t);
+                current_part.clear();
+            }
+            Token::NewLine => {
+                if current_part.is_empty() {
+                    error!(tokens, token, "Expected labelled type");
+                }
+                let Some(t) = parse_type_ref(&current_part) else {
+                    error!(tokens, token, "Expected valid labelled type");
+                };
+                parts.push(t);
+                current_part.clear();
+                let Some(PositionedToken {
+                    line_no: _,
+                    word_no: _,
+                    token: Token::VerticalBar,
+                }) = tokens.front()
+                else {
+                    break;
+                };
+            }
+            _ => {
+                error!(tokens, token, "Expected type or vertical bar");
+            }
+        }
+    }
+    ParserReturn::Some(tokens, Ok(Type::Union(parts)))
 }
 
 fn parse_type_ref(tokens: &VecDeque<PositionedToken<Token>>) -> Option<TypeRef> {

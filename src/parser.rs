@@ -387,6 +387,18 @@ fn parse_type_ref(tokens: &VecDeque<PositionedToken<Token>>) -> Option<TypeRef> 
                 nested.push_back(token);
             }
             Token::ParenClose => {
+                let open_count = nested
+                    .iter()
+                    .filter(|t| t.token == Token::ParenOpen)
+                    .count();
+                let close_count = nested
+                    .iter()
+                    .filter(|t| t.token == Token::ParenClose)
+                    .count();
+                if open_count - 1 > close_count {
+                    nested.push_back(token);
+                    continue;
+                }
                 nested.pop_front();
                 if !nested.is_empty() {
                     let Some(t) = parse_type_ref(&nested) else {

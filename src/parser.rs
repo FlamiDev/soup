@@ -260,11 +260,11 @@ fn parse_joined_tuple_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserR
                 current_type.push_back(token);
             }
             Token::Plus => {
-                let Some(t) = parse_type_ref(&current_type) else {
+                let Some(t) = parse_type_ref(current_type) else {
                     error!(tokens, token, "Expected type");
                 };
                 joined.push(t);
-                current_type.clear();
+                current_type = VecDeque::new();
             }
             Token::Parens(ref inner) => {
                 return ParserReturn::Some(
@@ -302,7 +302,7 @@ fn parse_tuple_type(mut tokens: Vec<PositionedToken<Token>>) -> Result<Type, Par
                 current_name = name.clone();
             }
             Token::Comma => {
-                let Some(t) = parse_type_ref(&current_type) else {
+                let Some(t) = parse_type_ref(current_type) else {
                     return error_err(token, "Expected type", line!(), 0);
                 };
                 if current_name.is_empty() {
@@ -310,20 +310,17 @@ fn parse_tuple_type(mut tokens: Vec<PositionedToken<Token>>) -> Result<Type, Par
                 } else {
                     named_args.push((current_name.clone(), t));
                 }
-                current_name.clear();
+                current_name = String::new();
+                current_type = VecDeque::new();
             }
             _ => {
                 current_type.push_back(token);
             }
         }
     }
-    let Some(t) = parse_type_ref(&current_type) else {
-        return error_err(
-            current_type.back().map(|t| t.clone()).unwrap_or(last_token),
-            "Expected type",
-            line!(),
-            0,
-        );
+    let last = current_type.back().unwrap_or(&last_token).clone();
+    let Some(t) = parse_type_ref(current_type) else {
+        return error_err(last, "Expected type", line!(), 0);
     };
     if current_name.is_empty() {
         args.push(t);
@@ -358,21 +355,21 @@ fn parse_union_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<T
                 if current_part.is_empty() {
                     error!(tokens, token, "Expected labelled type");
                 }
-                let Some(t) = parse_type_ref(&current_part) else {
+                let Some(t) = parse_type_ref(current_part) else {
                     error!(tokens, token, "Expected valid labelled type");
                 };
                 parts.push(t);
-                current_part.clear();
+                current_part = VecDeque::new();
             }
             Token::NewLine => {
                 if current_part.is_empty() {
                     error!(tokens, token, "Expected labelled type");
                 }
-                let Some(t) = parse_type_ref(&current_part) else {
+                let Some(t) = parse_type_ref(current_part) else {
                     error!(tokens, token, "Expected valid labelled type");
                 };
                 parts.push(t);
-                current_part.clear();
+                current_part = VecDeque::new();
                 let Some(PositionedToken {
                     line_no: _,
                     word_no: _,
@@ -390,8 +387,7 @@ fn parse_union_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<T
     ParserReturn::Some(tokens, Ok(Type::Union(parts)))
 }
 
-fn parse_type_ref(tokens: &VecDeque<PositionedToken<Token>>) -> Option<TypeRef> {
-    let mut tokens = tokens.clone();
+fn parse_type_ref(mut tokens: VecDeque<PositionedToken<Token>>) -> Option<TypeRef> {
     let Some(first) = tokens.pop_front() else {
         return None;
     };
@@ -408,7 +404,7 @@ fn parse_type_ref(tokens: &VecDeque<PositionedToken<Token>>) -> Option<TypeRef> 
                 type_args.push(TypeRef("_".to_string(), Vec::new()));
             }
             Token::Parens(inner) => {
-                let Some(t) = parse_type_ref(&VecDeque::from(inner)) else {
+                let Some(t) = parse_type_ref(VecDeque::from(inner)) else {
                     return None;
                 };
                 type_args.push(t);

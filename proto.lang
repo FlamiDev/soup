@@ -46,7 +46,7 @@ test "value compare" {
 	assert Some Ok 12 == Some Ok 12
 }
 
-let file = import file
+let file = import "file"
 export let write_file Result file.FileStatus file.FileError content String path String = {
 	// returns the error when it fails
 	let Ok file = path open

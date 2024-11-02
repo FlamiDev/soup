@@ -31,6 +31,7 @@ pub struct TypeRef(pub String, pub Vec<TypeRef>);
 #[derive(Debug, PartialEq, Clone)]
 pub enum LetDef {
     Standard(String, Expression),
+    Import(String, String),
     Exported(String, Expression),
     Destructure(Vec<String>, Expression),
     Matched(String, String, Expression),
@@ -45,7 +46,6 @@ pub enum Expression {
         args: Vec<String>,
         body: Block,
     },
-    Import(String),
     Construction(Vec<Expression>),
     NamedConstruction(Vec<(String, Expression)>),
     Int(i64),
@@ -414,7 +414,7 @@ fn parse_type_ref(mut tokens: VecDeque<PositionedToken<Token>>) -> Option<TypeRe
             }
         }
     }
-    Some(TypeRef(name, type_args.to_vec()))
+    Some(TypeRef(name, type_args))
 }
 
 fn parse_let_def(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<LetDef> {
@@ -423,7 +423,27 @@ fn parse_let_def(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<LetD
         return ParserReturn::None;
     };
     match value_keyword.token {
-        Token::LetKeyword => parse_let(&tokens),
+        Token::LetKeyword => {
+            if let Some([_, name, eq, import, path]) = tokens.first(5).as_deref() {
+                if import.token != Token::ImportKeyword {
+                    return parse_let(&tokens);
+                }
+                if eq.token != Token::EqualsSign {
+                    error!(tokens.clone(), (*eq).clone(), "Expected equals sign");
+                }
+                let Token::Name(ref name) = name.token else {
+                    error!(tokens.clone(), (*name).clone(), "Expected name");
+                };
+                let Token::String(ref path) = path.token else {
+                    error!(tokens.clone(), (*path).clone(), "Expected string path");
+                };
+                return ParserReturn::Some(
+                    tokens.clone().drain(5..).collect(),
+                    Ok(LetDef::Import(name.clone(), path.clone())),
+                );
+            }
+            parse_let(&tokens)
+        }
         Token::ExportKeyword => parse_let(&tokens),
         Token::DocKeyword => parse_doc_func(&tokens),
         Token::TestKeyword => parse_doc_func(&tokens),
@@ -449,4 +469,20 @@ fn parse_block(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<LetDef
 
 fn parse_expr(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<LetDef> {
     ParserReturn::None
+}
+
+trait Slice<T> {
+    fn first(&self, amount: usize) -> Option<Vec<&T>>;
+}
+impl<T> Slice<T> for VecDeque<T> {
+    fn first(&self, amount: usize) -> Option<Vec<&T>> {
+        let mut result = Vec::new();
+        for i in 0..amount {
+            match self.get(i) {
+                Some(t) => result.push(t),
+                None => return None,
+            }
+        }
+        Some(result)
+    }
 }

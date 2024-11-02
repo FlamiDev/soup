@@ -225,7 +225,9 @@ fn parse_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<Type> {
     };
     let second = tokens.get(1);
     match first.token {
-        Token::ParenOpen => parse_tuple_type(tokens),
+        Token::Parens(ref inner) => {
+            ParserReturn::Some(tokens.clone(), parse_tuple_type(inner.clone()))
+        }
         Token::Type(_) => match second {
             Some(PositionedToken {
                 line_no: _,
@@ -264,15 +266,10 @@ fn parse_joined_tuple_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserR
                 joined.push(t);
                 current_type.clear();
             }
-            Token::ParenOpen => {
-                tokens.push_front(token.clone());
-                let ParserReturn::Some(t, tuple) = parse_tuple_type(&tokens) else {
-                    error!(tokens, token, "Expected tuple type");
-                };
-                tokens = t;
+            Token::Parens(ref inner) => {
                 return ParserReturn::Some(
                     tokens,
-                    tuple.and_then(|t| match t {
+                    parse_tuple_type(inner.clone()).and_then(|t| match t {
                         Type::Tuple(args) => Ok(Type::JoinedTuples(joined, args)),
                         Type::NamedTuple(args) => Ok(Type::JoinedNamedTuples(joined, args)),
                         _ => error_err(token, "Expected tuple type", line!(), 0),
@@ -287,29 +284,26 @@ fn parse_joined_tuple_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserR
     ParserReturn::None
 }
 
-fn parse_tuple_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<Type> {
-    let mut tokens = tokens.clone();
-    let Some(open_paren) = tokens.pop_front() else {
-        return ParserReturn::None;
-    };
-    let Token::ParenOpen = open_paren.token else {
-        error!(tokens, open_paren, "Expected opening paren");
-    };
+fn parse_tuple_type(mut tokens: Vec<PositionedToken<Token>>) -> Result<Type, ParseError> {
+    if tokens.is_empty() {
+        return Ok(Type::Tuple(Vec::new()));
+    }
+    let last_token = tokens.last().unwrap().clone();
     let mut args = Vec::new();
     let mut named_args = Vec::new();
     let mut current_name = String::new();
     let mut current_type = VecDeque::new();
-    while let Some(token) = tokens.pop_front() {
+    while let Some(token) = tokens.pop() {
         match token.token {
             Token::Name(ref name) => {
                 if !current_name.is_empty() {
-                    error!(tokens, token, "Expected type or closing paren");
+                    return error_err(token, "Expected type or closing paren", line!(), 0);
                 }
                 current_name = name.clone();
             }
             Token::Comma => {
                 let Some(t) = parse_type_ref(&current_type) else {
-                    error!(tokens, token, "Expected type");
+                    return error_err(token, "Expected type", line!(), 0);
                 };
                 if current_name.is_empty() {
                     args.push(t);
@@ -318,50 +312,39 @@ fn parse_tuple_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<T
                 }
                 current_name.clear();
             }
-            Token::ParenClose => {
-                let paren_open_count = current_type
-                    .iter()
-                    .filter(|t| t.token == Token::ParenOpen)
-                    .count();
-                let paren_close_count = current_type
-                    .iter()
-                    .filter(|t| t.token == Token::ParenClose)
-                    .count();
-                if paren_open_count < paren_close_count {
-                    error!(tokens, token, "Unexpected closing paren");
-                }
-                if paren_open_count > paren_close_count {
-                    current_type.push_back(token);
-                    continue;
-                }
-                let Some(t) = parse_type_ref(&current_type) else {
-                    error!(tokens, token, "Expected type");
-                };
-                if current_name.is_empty() {
-                    args.push(t);
-                } else {
-                    named_args.push((current_name.clone(), t));
-                }
-                break;
-            }
             _ => {
                 current_type.push_back(token);
             }
         }
     }
+    let Some(t) = parse_type_ref(&current_type) else {
+        return error_err(
+            current_type.back().map(|t| t.clone()).unwrap_or(last_token),
+            "Expected type",
+            line!(),
+            0,
+        );
+    };
+    if current_name.is_empty() {
+        args.push(t);
+    } else {
+        named_args.push((current_name.clone(), t));
+    }
     if !args.is_empty() {
         if !named_args.is_empty() {
-            error!(
-                tokens,
-                open_paren, "Cannot mix named and unnamed tuple arguments"
-            )
+            return error_err(
+                last_token,
+                "Cannot mix named and unnamed tuple arguments",
+                line!(),
+                0,
+            );
         } else {
-            ParserReturn::Some(tokens, Ok(Type::Tuple(args)))
+            Ok(Type::Tuple(args))
         }
     } else if !named_args.is_empty() {
-        ParserReturn::Some(tokens, Ok(Type::NamedTuple(named_args)))
+        Ok(Type::NamedTuple(named_args))
     } else {
-        error!(tokens, open_paren, "Expected tuple arguments")
+        error_err(last_token, "Expected tuple arguments", line!(), 0)
     }
 }
 
@@ -371,18 +354,6 @@ fn parse_union_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<T
     let mut current_part = VecDeque::new();
     while let Some(token) = tokens.pop_front() {
         match token.token {
-            Token::Type(_) => {
-                current_part.push_back(token);
-            }
-            Token::Underscore => {
-                current_part.push_back(token);
-            }
-            Token::ParenOpen => {
-                current_part.push_back(token);
-            }
-            Token::ParenClose => {
-                current_part.push_back(token);
-            }
             Token::VerticalBar => {
                 if current_part.is_empty() {
                     error!(tokens, token, "Expected labelled type");
@@ -412,7 +383,7 @@ fn parse_union_type(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<T
                 };
             }
             _ => {
-                error!(tokens, token, "Expected type or vertical bar");
+                current_part.push_back(token);
             }
         }
     }
@@ -428,46 +399,19 @@ fn parse_type_ref(tokens: &VecDeque<PositionedToken<Token>>) -> Option<TypeRef> 
         return None;
     };
     let mut type_args = Vec::new();
-    let mut nested = VecDeque::new();
     while let Some(token) = tokens.pop_front() {
         match token.token {
-            Token::Type(ref arg) => {
-                if nested.is_empty() {
-                    type_args.push(TypeRef(arg.clone(), Vec::new()));
-                } else {
-                    nested.push_back(token);
-                }
+            Token::Type(arg) => {
+                type_args.push(TypeRef(arg, Vec::new()));
             }
             Token::Underscore => {
-                if nested.is_empty() {
-                    type_args.push(TypeRef("_".to_string(), Vec::new()));
-                } else {
-                    nested.push_back(token);
-                }
+                type_args.push(TypeRef("_".to_string(), Vec::new()));
             }
-            Token::ParenOpen => {
-                nested.push_back(token);
-            }
-            Token::ParenClose => {
-                let open_count = nested
-                    .iter()
-                    .filter(|t| t.token == Token::ParenOpen)
-                    .count();
-                let close_count = nested
-                    .iter()
-                    .filter(|t| t.token == Token::ParenClose)
-                    .count();
-                if open_count - 1 > close_count {
-                    nested.push_back(token);
-                    continue;
-                }
-                nested.pop_front();
-                if !nested.is_empty() {
-                    let Some(t) = parse_type_ref(&nested) else {
-                        return None;
-                    };
-                    type_args.push(t);
-                }
+            Token::Parens(inner) => {
+                let Some(t) = parse_type_ref(&VecDeque::from(inner)) else {
+                    return None;
+                };
+                type_args.push(t);
             }
             _ => {
                 return None;

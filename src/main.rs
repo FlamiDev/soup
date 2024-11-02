@@ -13,6 +13,8 @@ fn main() {
         return;
     };
     let verbose_mode = args.contains(&"verbose".to_string()) || args.contains(&"v".to_string());
+    let performance_mode =
+        args.contains(&"performance".to_string()) || args.contains(&"p".to_string());
 
     println!("Reading file {}", file);
     let Ok(input) = std::fs::read_to_string(file) else {
@@ -43,21 +45,23 @@ fn main() {
     }
 
     let ast = parser::parse(&tokens);
-    println!("DEBUG -- AST:");
-    println!(">>>>>>>>>> TYPES <<<<<<<<<<");
-    println!("{:#?}", ast.types);
-    println!(">>>>>>>>>> VALUES <<<<<<<<<<");
-    println!("{:#?}", ast.values);
-    println!(">>>>>>>>>> ERRORS <<<<<<<<<<");
-    println!(
-        "{:#?}",
-        if verbose_mode {
-            ast.errors
-        } else {
-            ast.errors
-                .into_iter()
-                .filter(|e| e.priority >= 0)
-                .collect::<Vec<ParseError>>()
-        }
-    );
+    if !performance_mode {
+        println!("DEBUG -- AST:");
+        println!(">>>>>>>>>> TYPES <<<<<<<<<<");
+        println!("{:#?}", ast.types);
+        println!(">>>>>>>>>> VALUES <<<<<<<<<<");
+        println!("{:#?}", ast.values);
+        println!(">>>>>>>>>> ERRORS <<<<<<<<<<");
+        println!(
+            "{:#?}",
+            if verbose_mode {
+                ast.errors
+            } else {
+                ast.errors
+                    .into_iter()
+                    .filter(|e| e.priority >= 0)
+                    .collect::<Vec<ParseError>>()
+            }
+        );
+    }
 }

@@ -1,4 +1,6 @@
-use std::{fmt::Debug, str::Chars};
+use std::{collections::VecDeque, fmt::Debug, str::Chars};
+
+use crate::parser::Root;
 
 fn split_words(input: &str) -> Vec<(i64, i64, String)> {
     fn split_recursive(mut input: Chars, mut total: Vec<String>, current: String) -> Vec<String> {
@@ -89,12 +91,12 @@ pub fn other<Token>(
     }
     let mut chars = text.chars();
     let Some(first) = chars.next() else {
-        return error_token("<empty word>".to_string());
+        return error_token("Empty token".to_string());
     };
     let mut current_token = get_token(first);
     if current_token == CustomToken::String {
         if chars.last() != Some('\"') {
-            return error_token(text.to_string());
+            return error_token(format!("Invalid string: {}", text));
         }
         return string_token(text[1..text.len() - 1].to_string());
     } else {
@@ -114,7 +116,7 @@ pub fn other<Token>(
                 if current_token == CustomToken::Type && new_token == CustomToken::Name {
                     continue;
                 }
-                return error_token(text.to_string());
+                return error_token(format!("Invalid token: {}", text));
             }
         }
     }
@@ -129,7 +131,7 @@ pub fn other<Token>(
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct PositionedToken<Token> {
     pub line_no: i64,
     pub word_no: i64,
@@ -144,20 +146,116 @@ impl<Token: Debug> Debug for PositionedToken<Token> {
     }
 }
 
+#[derive(Clone)]
+struct StackItem<Token>(Vec<PositionedToken<Token>>, Option<MatchingBrackets<Token>>);
+#[derive(Clone)]
+pub struct MatchingBrackets<Token> {
+    pub open: Token,
+    pub close: Token,
+    pub create: fn(Vec<PositionedToken<Token>>) -> Token,
+}
+pub fn brackets<Token>(
+    open: Token,
+    close: Token,
+    create: fn(Vec<PositionedToken<Token>>) -> Token,
+) -> MatchingBrackets<Token> {
+    MatchingBrackets {
+        open,
+        close,
+        create,
+    }
+}
+
 /// Parses a complete input file into the correct tokens.
 /// The matcher function should call `other` if it cannot find a matching keyword or operator.
-pub fn parse<Token>(input: &str, matcher: fn(&str) -> Token) -> Vec<PositionedToken<Token>> {
+pub fn parse<Token: Debug + Clone + PartialEq>(
+    input: &str,
+    matcher: fn(&str) -> Token,
+    brackets: Vec<MatchingBrackets<Token>>,
+    error_token: fn(msg: String) -> Token,
+) -> Vec<PositionedToken<Token>> {
     let words = split_words(input);
-    let mut tokens = Vec::new();
+    let mut stack = vec![StackItem(Vec::new(), None)];
     for (line_no, word_no, word) in words {
         let token = matcher(word.as_str());
-        tokens.push(PositionedToken {
-            line_no,
-            word_no,
-            token,
-        });
+        if let Some(bracket_open) = brackets.iter().find(|b| token == b.open) {
+            stack.push(StackItem(Vec::new(), Some(bracket_open.clone())));
+            continue;
+        };
+        if let Some(bracket_close) = brackets.iter().find(|b| token == b.close) {
+            if stack.is_empty() {
+                panic!("Stack should always contain the root element");
+            }
+            while let Some(StackItem(mut tokens, bracket)) = stack.pop() {
+                let Some(bracket) = bracket else {
+                    // Popped the root
+                    tokens.push(PositionedToken {
+                        line_no,
+                        word_no,
+                        token: error_token(format!(
+                            "Missing opening bracket {:?} for closing {:?}",
+                            bracket_close.open, bracket_close.close
+                        )),
+                    });
+                    stack.push(StackItem(tokens, None));
+                    break;
+                };
+
+                let last = stack
+                    .last_mut()
+                    .expect("Stack should always contain the root element");
+
+                if bracket.close == bracket_close.close {
+                    let pos = tokens
+                        .first()
+                        .map_or((line_no, word_no - 1), |t| (t.line_no, t.word_no));
+                    last.0.push(PositionedToken {
+                        line_no: pos.0,
+                        word_no: pos.1,
+                        token: (bracket.create)(tokens),
+                    });
+                    break;
+                }
+
+                tokens.push(PositionedToken {
+                    line_no,
+                    word_no,
+                    token: error_token(format!(
+                        "Missing closing bracket {:?} for {:?}, found {:?}",
+                        bracket.close, bracket.open, bracket_close.close
+                    )),
+                });
+            }
+            continue;
+        };
+        stack
+            .last_mut()
+            .expect("Stack should always contain the root element")
+            .0
+            .push(PositionedToken {
+                line_no,
+                word_no,
+                token,
+            });
     }
-    tokens
+    stack
+        .into_iter()
+        .reduce(|mut acc, i| {
+            if let Some(bracket) = i.1 {
+                acc.0.push(PositionedToken {
+                    line_no: 0,
+                    word_no: 0,
+                    token: error_token(format!(
+                        "Missing closing bracket {:?} for {:?}",
+                        bracket.close, bracket.open
+                    )),
+                });
+            }
+            acc.0.extend(i.0);
+            acc
+        })
+        .expect("Stack should always contain the root element")
+        .0
 }
 
 pub fn debug_invalid<Token: Debug>(

@@ -5,7 +5,7 @@ use crate::{compiler_tools::tokenizer::PositionedToken, tokenizer::Token};
 #[derive(Debug, PartialEq, Clone)]
 pub struct Root {
     pub types: Vec<TypeDef>,
-    pub values: Vec<ValueDef>,
+    pub values: Vec<LetDef>,
     pub errors: Vec<ParseError>,
 }
 
@@ -29,16 +29,16 @@ pub enum Type {
 pub struct TypeRef(pub String, pub Vec<TypeRef>);
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum ValueDef {
-    Standard(String, Value),
-    Exported(String, Value),
-    Destructure(Vec<String>, Value),
-    Matched(String, String, Value),
-    MatchedDestructure(String, Vec<String>, Value),
+pub enum LetDef {
+    Standard(String, Expression),
+    Exported(String, Expression),
+    Destructure(Vec<String>, Expression),
+    Matched(String, String, Expression),
+    MatchedDestructure(String, Vec<String>, Expression),
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Value {
+pub enum Expression {
     Function {
         doc: String,
         tests: Vec<Block>,
@@ -46,15 +46,15 @@ pub enum Value {
         body: Block,
     },
     Import(String),
-    Construction(Vec<Value>),
-    NamedConstruction(Vec<(String, Value)>),
+    Construction(Vec<Expression>),
+    NamedConstruction(Vec<(String, Expression)>),
     Int(i64),
     Float(f64),
     String(String),
-    InterpolatedString(Vec<Value>),
-    RefName(String),
+    InterpolatedString(Vec<Expression>),
+    Ref(String),
     Match(String, Vec<MatchCase>),
-    FunctionCall(String, Vec<Value>),
+    FunctionCall(String, Vec<Expression>),
     UnparsedCallChain(Vec<Token>),
 }
 
@@ -68,14 +68,14 @@ pub struct MatchCase {
 #[derive(Debug, PartialEq, Clone)]
 pub struct Block {
     pub instructions: Vec<Instruction>,
-    pub returns: Box<Value>,
+    pub returns: Box<Expression>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Instruction {
-    ValueDef(ValueDef),
-    Assert(Value),
-    Mock(String, Value),
+    ValueDef(LetDef),
+    Assert(Expression),
+    Mock(String, Expression),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -151,7 +151,7 @@ pub fn parse(tokens: &Vec<PositionedToken<Token>>) -> Root {
             }
             continue;
         };
-        if let ParserReturn::Some(t, res) = parse_value_def(&tokens) {
+        if let ParserReturn::Some(t, res) = parse_let_def(&tokens) {
             tokens = t;
             match res {
                 Ok(v) => values.push(v),
@@ -477,6 +477,36 @@ fn parse_type_ref(tokens: &VecDeque<PositionedToken<Token>>) -> Option<TypeRef> 
     Some(TypeRef(name, type_args.to_vec()))
 }
 
-fn parse_value_def(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<ValueDef> {
+fn parse_let_def(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<LetDef> {
+    let tokens = tokens.clone();
+    let Some(value_keyword) = tokens.front() else {
+        return ParserReturn::None;
+    };
+    match value_keyword.token {
+        Token::LetKeyword => parse_let(&tokens),
+        Token::ExportKeyword => parse_let(&tokens),
+        Token::DocKeyword => parse_doc_func(&tokens),
+        Token::TestKeyword => parse_doc_func(&tokens),
+        _ => ParserReturn::None,
+    }
+}
+
+fn parse_let(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<LetDef> {
+    ParserReturn::None
+}
+
+fn parse_doc_func(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<LetDef> {
+    ParserReturn::None
+}
+
+fn parse_func(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<LetDef> {
+    ParserReturn::None
+}
+
+fn parse_block(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<LetDef> {
+    ParserReturn::None
+}
+
+fn parse_expr(tokens: &VecDeque<PositionedToken<Token>>) -> ParserReturn<LetDef> {
     ParserReturn::None
 }

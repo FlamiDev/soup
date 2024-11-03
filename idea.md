@@ -1,4 +1,13 @@
-# Idea
+# Ideas
+
+## Steps
+
+- Start with imports
+- Then parse all types in the file
+- Parse only names and arguments for let declarations
+- Finally you can start parsing function chains
+
+## Ideas
 
 - `Option` and `Result` have to be defined in language itself
   - Could be union type with forced labelling:

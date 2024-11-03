@@ -46,7 +46,7 @@ test "value compare" {
 	assert Some Ok 12 == Some Ok 12
 }
 
-let file = import "file"
+import File "file"
 export let write_file Result file.FileStatus file.FileError content String path String = {
 	// returns the error when it fails
 	let Ok file = path open
@@ -58,7 +58,7 @@ export let write_file Result file.FileStatus file.FileError content String path 
 let folder = "some_folder"
 let write_my_file = ? write_file "./{some_folder}/my_file"
 
-let some_lib = import "https://github.com/user/library"
+import SomeLib "https://github.com/user/library"
 
 type Day = (year Int, month Int, day Int)
 type Person = (name String, birth Day)

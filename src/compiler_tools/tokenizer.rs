@@ -1,6 +1,4 @@
-use std::{collections::VecDeque, fmt::Debug, str::Chars};
-
-use crate::parser::Root;
+use std::{fmt::Debug, str::Chars};
 
 fn split_words(input: &str) -> Vec<(i64, i64, String)> {
     fn split_recursive(mut input: Chars, mut total: Vec<String>, current: String) -> Vec<String> {
@@ -256,22 +254,4 @@ pub fn parse<Token: Debug + Clone + PartialEq>(
         })
         .expect("Stack should always contain the root element")
         .0
-}
-
-pub fn debug_invalid<Token: Debug>(
-    tokens: &Vec<PositionedToken<Token>>,
-    invalid: fn(&Token) -> bool,
-) -> bool {
-    let invalid_tokens: Vec<&PositionedToken<Token>> =
-        tokens.iter().filter(|t| invalid(&t.token)).collect();
-    if !invalid_tokens.is_empty() {
-        for token in invalid_tokens {
-            println!(
-                "Invalid token at line {}, word {}: <{:?}>",
-                token.line_no, token.word_no, token.token
-            );
-        }
-        return true;
-    }
-    false
 }

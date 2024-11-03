@@ -4,13 +4,14 @@ use crate::{
     compiler_tools::{
         parser::{self, Import, ParseResult, AST},
         tokenizer::PositionedToken,
+        ParseFile,
     },
     tokenizer::Token,
 };
 
 pub fn parse(
     tokens: Vec<PositionedToken<Token>>,
-    parse_file: Box<dyn Fn(String) -> Option<AST<String, String, String>> + Sync + Send>,
+    parse_file: ParseFile<AST<String, String, String>>,
 ) -> AST<String, String, String> {
     parser::parse(
         tokens,

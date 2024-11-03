@@ -1,13 +1,15 @@
 use rayon::prelude::*;
 use std::{collections::VecDeque, fmt::Debug};
 
-use super::tokenizer::PositionedToken;
+use super::{tokenizer::PositionedToken, ParseFile};
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct Import {
     pub name: String,
     pub from: String,
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct AST<Type, Value, Error> {
     pub types: Vec<Type>,
     pub values: Vec<Value>,
@@ -30,7 +32,7 @@ pub fn parse<
     split_on: Vec<Token>,
     import_token: Token,
     parse_import: fn(VecDeque<PositionedToken<Token>>) -> ParseResult<Token, Import>,
-    parse_file: Box<dyn Fn(String) -> Option<AST<Type, Value, Error>> + Sync + Send>,
+    mut parse_file: ParseFile<AST<Type, Value, Error>>,
     error: fn(PositionedToken<Token>, String, i64) -> Error,
 ) -> AST<Type, Value, Error> {
     let mut types = vec![];

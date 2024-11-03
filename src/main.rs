@@ -1,4 +1,7 @@
-use std::collections::VecDeque;
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::RwLock,
+};
 
 use compiler_tools::parse_file;
 
@@ -17,7 +20,8 @@ fn main() {
     let performance_mode =
         args.contains(&"performance".to_string()) || args.contains(&"p".to_string());
 
-    let Some(ast) = parse_file(file.clone(), tokenizer::parse, parser::parse) else {
+    let parse_cache = RwLock::new(HashMap::new());
+    let Some(ast) = parse_file(file.clone(), tokenizer::parse, parser::parse, &parse_cache) else {
         println!("Could not read file '{}'", file);
         return;
     };

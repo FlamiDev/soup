@@ -31,15 +31,8 @@ pub fn parse(
 }
 
 fn parse_import(mut tokens: VecDeque<PositionedToken<Token>>) -> ParseResult<Token, Import> {
-    let Some(first) = tokens.pop_front() else {
-        return ParseResult::Failure;
-    };
     let Some(token) = tokens.pop_front() else {
-        return ParseResult::Error(
-            first,
-            "Expected type name after import keyword".to_string(),
-            0,
-        );
+        return ParseResult::Failure;
     };
     let Token::Type(ref name) = token.token else {
         return ParseResult::Error(
@@ -54,12 +47,14 @@ fn parse_import(mut tokens: VecDeque<PositionedToken<Token>>) -> ParseResult<Tok
     let Token::String(path) = token.token else {
         return ParseResult::Error(token, "Expected file path after type name".to_string(), 0);
     };
-    if !tokens.is_empty() {
-        return ParseResult::Error(
-            tokens.back().unwrap().clone(),
-            "Expected end of line after import statement".to_string(),
-            0,
-        );
+    if let Some(end) = tokens.pop_front() {
+        let Token::NewLine = end.token else {
+            return ParseResult::Error(
+                end,
+                "Expected newline after import statement".to_string(),
+                0,
+            );
+        };
     }
     ParseResult::Success(Import {
         name: name.clone(),

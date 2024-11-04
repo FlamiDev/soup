@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use crate::{
     compiler_tools::{
-        parser::{self, Import, ParseResult, AST},
+        parser::{self, Import, ImportParseResult, AST},
         tokenizer::PositionedToken,
         ParseFile,
     },
@@ -15,48 +15,36 @@ pub fn parse(
 ) -> AST<String, String, String> {
     parser::parse(
         tokens,
-        vec![
-            Token::ImportKeyword,
-            Token::ExportKeyword,
-            Token::TypeKeyword,
-            Token::LetKeyword,
-            Token::DocKeyword,
-            Token::TestKeyword,
-        ],
         Token::ImportKeyword,
+        Token::ExportKeyword,
+        Token::TypeKeyword,
         parse_import,
-        parse_file,
+        parse_type,
+        vec![],
         |token, message, line| message,
+        parse_file,
     )
 }
 
-fn parse_import(mut tokens: VecDeque<PositionedToken<Token>>) -> ParseResult<Token, Import> {
+fn parse_import(mut tokens: VecDeque<PositionedToken<Token>>) -> ImportParseResult<Import, String> {
     let Some(token) = tokens.pop_front() else {
-        return ParseResult::Failure;
+        return ImportParseResult::Failure;
     };
     let Token::Type(ref name) = token.token else {
-        return ParseResult::Error(
-            token,
-            "Expected type name after import keyword".to_string(),
-            0,
-        );
+        return ImportParseResult::Error("Expected type name after import keyword".to_string());
     };
     let Some(token) = tokens.pop_front() else {
-        return ParseResult::Error(token, "Expected file path after type name".to_string(), 0);
+        return ImportParseResult::Error("Expected file path after type name".to_string());
     };
     let Token::String(path) = token.token else {
-        return ParseResult::Error(token, "Expected file path after type name".to_string(), 0);
+        return ImportParseResult::Error("Expected file path after type name".to_string());
     };
     if let Some(end) = tokens.pop_front() {
         let Token::NewLine = end.token else {
-            return ParseResult::Error(
-                end,
-                "Expected newline after import statement".to_string(),
-                0,
-            );
+            return ImportParseResult::Error("Expected newline after import statement".to_string());
         };
     }
-    ParseResult::Success(Import {
+    ImportParseResult::Success(Import {
         name: name.clone(),
         from: path,
     })

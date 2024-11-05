@@ -10,8 +10,8 @@ pub struct Import {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ImportExport<Token> {
-    token: Token,
+pub struct ImportExport<Token: Debug> {
+    pub token: Token,
     type_: ImportExportType,
 }
 
@@ -19,21 +19,28 @@ pub struct ImportExport<Token> {
 pub enum ImportExportType {
     Internal,
     Exported,
-    Imported(String),
+    Imported(Import),
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct AST<Type, Value, Error> {
+pub struct AST<Type: Debug, Value: Debug, Error: Debug> {
     pub types: Vec<ImportExport<Type>>,
     pub values: Vec<ImportExport<Value>>,
     pub errors: Vec<Error>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Parser<Token, Type, Value, Error>(Vec<Token>, ParserFn<Token, Type, Value, Error>);
+pub struct Parser<Token: Debug, Type: Debug, Value: Debug, Error: Debug>(
+    Vec<Token>,
+    ParserFn<Token, Type, Value, Error>,
+);
 
-type ParserFn<Token, Type, Value, Error> =
-    fn(VecDeque<PositionedToken<Token>>) -> ParseResult<Type, Value, Error>;
+type ParserFn<Token, Type, Value, Error> = fn(
+    PositionedToken<Token>,
+    VecDeque<PositionedToken<Token>>,
+    &Vec<ImportExport<Type>>,
+    &Vec<ImportExport<Value>>,
+) -> ParseResult<Type, Value, Error>;
 
 pub enum ParseResult<Type, Value, Error> {
     Type(Type),
@@ -48,22 +55,31 @@ pub enum ImportParseResult<Import, Error> {
 }
 
 pub fn parse<
+    'l,
     Token: PartialEq + Debug + Clone + Send,
     Type: PartialEq + Debug + Clone + Send,
     Value: PartialEq + Debug + Clone + Send,
     Error: PartialEq + Debug + Clone + Send,
 >(
     tokens: Vec<PositionedToken<Token>>,
+    newline_token: Token,
     import_token: Token,
     export_token: Token,
     type_token: Token,
+    predefined_types: Vec<Type>,
     parse_import: fn(VecDeque<PositionedToken<Token>>) -> ImportParseResult<Import, Error>,
     parse_type: ParserFn<Token, Type, Value, Error>,
     parse_others: Vec<Parser<Token, Type, Value, Error>>,
-    create_error: fn(PositionedToken<Token>, String, i64) -> Error,
-    parse_file: ParseFile<AST<Type, Value, Error>>,
+    create_error: fn(PositionedToken<Token>, String) -> Error,
+    parse_file: ParseFile<'l, AST<Type, Value, Error>>,
 ) -> AST<Type, Value, Error> {
-    let mut types = vec![];
+    let mut types: Vec<ImportExport<Type>> = predefined_types
+        .into_iter()
+        .map(|t| ImportExport {
+            token: t,
+            type_: ImportExportType::Internal,
+        })
+        .collect();
     let mut values = vec![];
     let mut errors = vec![];
     let mut split_on = vec![
@@ -86,9 +102,13 @@ pub fn parse<
             exported = true;
             token.remove(0);
         }
-        if token[0].token == type_token {
+        if token.is_empty() {
+            continue;
+        }
+        let first = token.remove(0);
+        if first.token == type_token {
             type_tokens.push(ImportExport {
-                token,
+                token: (first, token),
                 type_: if exported {
                     ImportExportType::Exported
                 } else {
@@ -97,7 +117,7 @@ pub fn parse<
             });
         } else {
             value_tokens.push(ImportExport {
-                token,
+                token: (first, token),
                 type_: if exported {
                     ImportExportType::Exported
                 } else {
@@ -130,22 +150,22 @@ pub fn parse<
         .into_par_iter()
         .map(|import| {
             parse_file(import.token.from.clone())
-                .map(|i| (import.token.from.clone(), i))
+                .map(|i| (import.token.clone(), i))
                 .ok_or(import)
         })
         .collect::<Vec<_>>();
     for import in imported_files {
         match import {
-            Ok((file, import)) => {
-                types.extend(import.types.into_iter().map(|t| ImportExport {
+            Ok((import, tree)) => {
+                types.extend(tree.types.into_iter().map(|t| ImportExport {
                     token: t.token,
-                    type_: ImportExportType::Imported(file.clone()),
+                    type_: ImportExportType::Imported(import.clone()),
                 }));
-                values.extend(import.values.into_iter().map(|v| ImportExport {
+                values.extend(tree.values.into_iter().map(|v| ImportExport {
                     token: v.token,
-                    type_: ImportExportType::Imported(file.clone()),
+                    type_: ImportExportType::Imported(import.clone()),
                 }));
-                errors.extend(import.errors);
+                errors.extend(tree.errors);
             }
             Err(token) => {
                 errors.push(create_error(
@@ -158,24 +178,43 @@ pub fn parse<
                         "Could not import file {} from {}",
                         token.token.name, token.token.from
                     ),
-                    0,
                 ));
             }
         }
     }
-    for ImportExport { token, type_ } in type_tokens {
-        match parse_type(token.into()) {
+    for ImportExport { mut token, type_ } in type_tokens {
+        if token.0.token == newline_token {
+            continue;
+        }
+        while let Some(PositionedToken { token: t, .. }) = token.1.last() {
+            if t == &newline_token {
+                token.1.pop();
+            } else {
+                break;
+            }
+        }
+        match parse_type(token.0, token.1.into(), &types, &values) {
             ParseResult::Type(t) => types.push(ImportExport { token: t, type_ }),
             ParseResult::Value(v) => values.push(ImportExport { token: v, type_ }),
             ParseResult::Error(e) => errors.push(e),
         }
     }
-    for ImportExport { token, type_ } in value_tokens {
+    for ImportExport { mut token, type_ } in value_tokens {
+        if token.0.token == newline_token {
+            continue;
+        }
+        while let Some(PositionedToken { token: t, .. }) = token.1.last() {
+            if t == &newline_token {
+                token.1.pop();
+            } else {
+                break;
+            }
+        }
         let mut found = false;
-        let first = &token[0];
+        let first = &token.0;
         for parser in &parse_others {
             if parser.0.contains(&first.token) {
-                match (parser.1)(token.clone().into()) {
+                match (parser.1)(token.0.clone(), token.1.into(), &types, &values) {
                     ParseResult::Type(t) => types.push(ImportExport { token: t, type_ }),
                     ParseResult::Value(v) => values.push(ImportExport { token: v, type_ }),
                     ParseResult::Error(e) => errors.push(e),
@@ -188,7 +227,6 @@ pub fn parse<
             errors.push(create_error(
                 first.clone(),
                 "Unexpected top-level token".to_string(),
-                0,
             ));
         }
     }

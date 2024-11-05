@@ -8,6 +8,8 @@ use compiler_tools::parse_file;
 mod compiler_tools;
 mod parser;
 mod tokenizer;
+mod type_parser;
+mod value_parser;
 
 fn main() {
     let mut args: VecDeque<String> = std::env::args().collect();

@@ -29,29 +29,40 @@ pub struct AST<Type: Debug, Value: Debug, Error: Debug> {
     pub errors: Vec<Error>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct Parser<Token: Debug, Type: Debug, Value: Debug, Error: Debug>(
-    Vec<Token>,
-    ParserFn<Token, Type, Value, Error>,
-);
-
-type ParserFn<Token, Type, Value, Error> = fn(
-    PositionedToken<Token>,
-    VecDeque<PositionedToken<Token>>,
-    &Vec<ImportExport<Type>>,
-    &Vec<ImportExport<Value>>,
-) -> ParseResult<Type, Value, Error>;
-
-pub enum ParseResult<Type, Value, Error> {
-    Type(Type),
-    Value(Value),
-    Error(Error),
-}
-
 pub enum ImportParseResult<Import, Error> {
     Success(Import),
     Error(Error),
     Failure,
+}
+
+type TypeParserFn<Token, Type, Error> = fn(
+    PositionedToken<Token>,
+    VecDeque<PositionedToken<Token>>,
+    &Vec<ImportExport<Type>>,
+) -> TypeParseResult<Type, Error>;
+
+pub enum TypeParseResult<Type, Error> {
+    Type(Type),
+    Error(Error),
+}
+
+pub struct ValueParser<Token, Type: Debug, Value: Debug, Take, Error>(
+    pub Vec<Token>,
+    pub ValueParserFn<Token, Type, Value, Take, Error>,
+);
+
+type ValueParserFn<Token, Type, Value, Take, Error> = fn(
+    PositionedToken<Token>,
+    VecDeque<PositionedToken<Token>>,
+    &mut Vec<Take>,
+    &Vec<ImportExport<Type>>,
+    &Vec<ImportExport<Value>>,
+) -> ValueParseResult<Value, Take, Error>;
+
+pub enum ValueParseResult<Value, Take, Error> {
+    Value(Value),
+    TakeToNext(Take),
+    Error(Error),
 }
 
 pub fn parse<
@@ -59,6 +70,7 @@ pub fn parse<
     Token: PartialEq + Debug + Clone + Send,
     Type: PartialEq + Debug + Clone + Send,
     Value: PartialEq + Debug + Clone + Send,
+    Take: PartialEq + Debug + Clone + Send,
     Error: PartialEq + Debug + Clone + Send,
 >(
     tokens: Vec<PositionedToken<Token>>,
@@ -68,8 +80,8 @@ pub fn parse<
     type_token: Token,
     predefined_types: Vec<Type>,
     parse_import: fn(VecDeque<PositionedToken<Token>>) -> ImportParseResult<Import, Error>,
-    parse_type: ParserFn<Token, Type, Value, Error>,
-    parse_others: Vec<Parser<Token, Type, Value, Error>>,
+    parse_type: TypeParserFn<Token, Type, Error>,
+    parse_others: Vec<ValueParser<Token, Type, Value, Take, Error>>,
     create_error: fn(PositionedToken<Token>, String) -> Error,
     parse_file: ParseFile<'l, AST<Type, Value, Error>>,
 ) -> AST<Type, Value, Error> {
@@ -193,12 +205,12 @@ pub fn parse<
                 break;
             }
         }
-        match parse_type(token.0, token.1.into(), &types, &values) {
-            ParseResult::Type(t) => types.push(ImportExport { token: t, type_ }),
-            ParseResult::Value(v) => values.push(ImportExport { token: v, type_ }),
-            ParseResult::Error(e) => errors.push(e),
+        match parse_type(token.0, token.1.into(), &types) {
+            TypeParseResult::Type(t) => types.push(ImportExport { token: t, type_ }),
+            TypeParseResult::Error(e) => errors.push(e),
         }
     }
+    let mut take_to_next = Vec::new();
     for ImportExport { mut token, type_ } in value_tokens {
         if token.0.token == newline_token {
             continue;
@@ -214,10 +226,16 @@ pub fn parse<
         let first = &token.0;
         for parser in &parse_others {
             if parser.0.contains(&first.token) {
-                match (parser.1)(token.0.clone(), token.1.into(), &types, &values) {
-                    ParseResult::Type(t) => types.push(ImportExport { token: t, type_ }),
-                    ParseResult::Value(v) => values.push(ImportExport { token: v, type_ }),
-                    ParseResult::Error(e) => errors.push(e),
+                match (parser.1)(
+                    token.0.clone(),
+                    token.1.into(),
+                    &mut take_to_next,
+                    &types,
+                    &values,
+                ) {
+                    ValueParseResult::Value(v) => values.push(ImportExport { token: v, type_ }),
+                    ValueParseResult::TakeToNext(t) => take_to_next.push(t),
+                    ValueParseResult::Error(e) => errors.push(e),
                 }
                 found = true;
                 break;

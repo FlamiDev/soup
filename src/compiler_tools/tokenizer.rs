@@ -8,8 +8,8 @@ fn split_words(input: &str) -> Vec<(i64, i64, String)> {
             }
             return total;
         };
-        if current.chars().next() == Some('\"') {
-            if ch == '\"' && current.chars().last() != Some('\\') {
+        if current.starts_with('\"') {
+            if ch == '\"' && !current.ends_with('\\') {
                 total.push(format!("{}{}", current, ch));
                 return split_recursive(input, total, String::new());
             } else {

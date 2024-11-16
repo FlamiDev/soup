@@ -1,12 +1,12 @@
 export type Option A = None | Some A
 export type Result A B = Ok A | Err B
 
-export let or a Option _ b = a match {
+export let or = a Option _ b -> a match {
 	Some a -> a
 	None -> b
 }
 
-export let or a Result _ b = a match {
+export let or = a Result _ _ b -> a match {
 	Ok a -> a
 	Err _ -> b
 }

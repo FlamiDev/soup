@@ -22,6 +22,7 @@ pub enum ImportExportType {
     Imported(Import),
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, PartialEq, Clone)]
 pub struct AST<Type: Debug, Value: Debug, Error: Debug> {
     pub types: Vec<ImportExport<Type>>,
@@ -62,11 +63,11 @@ type ValueParserFn<Token, Type, Value, Take, Error> = fn(
 pub enum ValueParseResult<Value, Take, Error> {
     Value(Value),
     TakeToNext(Take),
-    Error(Error),
+    Error(Vec<Error>),
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn parse<
-    'l,
     Token: PartialEq + Debug + Clone + Send,
     Type: PartialEq + Debug + Clone + Send,
     Value: PartialEq + Debug + Clone + Send,
@@ -83,7 +84,7 @@ pub fn parse<
     parse_type: TypeParserFn<Token, Type, Error>,
     parse_others: Vec<ValueParser<Token, Type, Value, Take, Error>>,
     create_error: fn(PositionedToken<Token>, String) -> Error,
-    parse_file: ParseFile<'l, AST<Type, Value, Error>>,
+    parse_file: ParseFile<'_, AST<Type, Value, Error>>,
 ) -> AST<Type, Value, Error> {
     let mut types: Vec<ImportExport<Type>> = predefined_types
         .into_iter()
@@ -235,7 +236,7 @@ pub fn parse<
                 ) {
                     ValueParseResult::Value(v) => values.push(ImportExport { token: v, type_ }),
                     ValueParseResult::TakeToNext(t) => take_to_next.push(t),
-                    ValueParseResult::Error(e) => errors.push(e),
+                    ValueParseResult::Error(e) => errors.extend(e),
                 }
                 found = true;
                 break;
@@ -251,29 +252,17 @@ pub fn parse<
     AST {
         types: types
             .into_iter()
-            .filter(|t| {
-                if let ImportExportType::Exported = t.type_ {
-                    true
-                } else {
-                    false
-                }
-            })
+            .filter(|t| matches!(t.type_, ImportExportType::Exported))
             .collect(),
         values: values
             .into_iter()
-            .filter(|v| {
-                if let ImportExportType::Exported = v.type_ {
-                    true
-                } else {
-                    false
-                }
-            })
+            .filter(|v| matches!(v.type_, ImportExportType::Exported))
             .collect(),
         errors,
     }
 }
 
-fn split_starting<Token: PartialEq + Debug>(
+pub fn split_starting<Token: PartialEq + Debug>(
     tokens: Vec<PositionedToken<Token>>,
     split_on: Vec<Token>,
 ) -> Vec<Vec<PositionedToken<Token>>> {

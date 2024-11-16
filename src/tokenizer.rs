@@ -21,6 +21,7 @@ pub enum Token {
     GreaterThanEqualsSign,
     SpreadRangeOperator,
     VerticalBar,
+    ArrowLeft,
     ArrowRight,
     ArrayOpen,
     ArrayClose,
@@ -75,6 +76,7 @@ pub fn parse(input: &str) -> Vec<PositionedToken<Token>> {
             ">=" => Token::GreaterThanEqualsSign,
             ".." => Token::SpreadRangeOperator,
             "|" => Token::VerticalBar,
+            "<-" => Token::ArrowLeft,
             "->" => Token::ArrowRight,
             "[" => Token::ArrayOpen,
             "]" => Token::ArrayClose,
@@ -97,12 +99,12 @@ pub fn parse(input: &str) -> Vec<PositionedToken<Token>> {
             "\n" => Token::NewLine,
             other => tokenizer::other(
                 other,
-                |t| Token::Type(t),
-                |n| Token::Name(n),
-                |i| Token::Int(i),
-                |f| Token::Float(f),
-                |s| Token::String(s),
-                |msg| Token::Invalid(msg),
+                Token::Type,
+                Token::Name,
+                Token::Int,
+                Token::Float,
+                Token::String,
+                Token::Invalid,
             ),
         },
         vec![
@@ -110,6 +112,6 @@ pub fn parse(input: &str) -> Vec<PositionedToken<Token>> {
             brackets(Token::BraceOpen, Token::BraceClose, Token::Braces),
             brackets(Token::ArrayOpen, Token::ArrayClose, Token::Array),
         ],
-        |msg| Token::Invalid(msg),
+        Token::Invalid,
     )
 }

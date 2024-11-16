@@ -1,63 +1,57 @@
-// Required language features by this file 
-// ignore value		_
-// infer type		_
-// later currying	?
-// infix to prefix	!
-
 import Prelude "prelude.lang"
 
 type MaybeText = Option String
 
-export
-
 doc "Divides every element in a by b, or 0 if b is 0"
-test "normal division" {
+test "normal division" (
 	assert [1, 2, 3] div_map 2 == [0, 1, 1]
-}
-test "division by 0" {
+)
+test "division by 0" (
 	assert [1, 2, 3] div_map 0 == [0, 0, 0]
-}
-test "empty list" {
-	mock map l f = l map (x -> x println; x f)
+)
+test "empty list" (
+	// debug_print returns its input
+	mock map = l f -> l map (x -> x debug_print f)
 	assert [] div_map 2 == []
-}
-let div_map a List Int b Int = a map (x -> x div b or 0)
+)
+let div_map Int = a List Int b Int -> a map (x -> x div b or 0)
 
-let sum = ? match {
+let sum = ? match (
 	[] -> 0
 	[x, ..xs] -> x + sum! xs
-}
+)
 
-test "sum range" {
+test "sum range" (
 	assert [1..5] sum == 10
-}
+)
 
-test "value compare" {
+test "value compare" (
 	assert Some Ok 12 == Some Ok 12
-}
+)
 
 import File "file"
-export let write_file Result file.FileStatus file.FileError content String path String = {
+export let write_file Result File.FileStatus File.FileError = (
+	content String path String ->
 	// returns the error when it fails
 	let Ok file = path open
 	let res = file write content
-	file close
+	let _ = file close
 	res
-}
+)
 
 let folder = "some_folder"
 let write_my_file = ? write_file "./{some_folder}/my_file"
 
 import SomeLib "https://github.com/user/library"
 
-type Day = (year Int, month Int, day Int)
-type Person = (name String, birth Day)
-type Account = Person + (email String, password_hash String)
+type Day = {year Int, month Int, day Int}
+type Person = {name String, birth Day}
+type Account = Person + {email String, password_hash String}
 
-let johns_account = ("John", (day  5, month  8, year  1990), "john@example.com", "4s5gre54hrh878i9uyt")
-let Account (email, password_hash) = johns_account
+let johns_account = {"John", {day  5, month  8, year  1990}, "john@example.com", "4s5gre54hrh878i9uyt"}
+let Account {email, password_hash} = johns_account
 
 
-let to_string a Day = todo "too lazy to implement"
-let to_string a Person = "{a.name} was born on {a.birth.year}-{a.birth.month}-{a.birth.day}"
+let to_string = a Day -> "{a.year}-{a.month}-{a.day}"
+let to_string = a Person -> "{a.name} was born on {a.birth}"
 let info_for_john = "The info: {johns_account}"

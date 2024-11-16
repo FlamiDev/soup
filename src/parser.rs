@@ -8,7 +8,7 @@ use crate::{
     },
     tokenizer::Token,
     type_parser::{parse_type_def, Type, TypeDef},
-    value_parser::{parse_func_doc, parse_func_test, parse_value_def, ValueDef},
+    value_parser::{parse_doc, parse_test, parse_value_def, ValueDef},
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -31,18 +31,12 @@ pub fn parse_error(token: PositionedToken<Token>, why: &str, priority: i64) -> P
 }
 
 pub fn err<T>(token: PositionedToken<Token>, why: &str, priority: i64) -> Result<T, ParseError> {
-    Err(ParseError {
-        line_no: token.line_no,
-        word_no: token.word_no,
-        token: token.token,
-        why: why.to_string(),
-        priority,
-    })
+    Err(parse_error(token, why, priority))
 }
 
-pub fn parse<'l>(
+pub fn parse(
     tokens: Vec<PositionedToken<Token>>,
-    parse_file: ParseFile<'l, AST<TypeDef, ValueDef, ParseError>>,
+    parse_file: ParseFile<AST<TypeDef, ValueDef, ParseError>>,
 ) -> AST<TypeDef, ValueDef, ParseError> {
     parser::parse(
         tokens,
@@ -70,8 +64,8 @@ pub fn parse<'l>(
         parse_import,
         parse_type_def,
         vec![
-            ValueParser(vec![Token::DocKeyword], parse_func_doc),
-            ValueParser(vec![Token::TestKeyword], parse_func_test),
+            ValueParser(vec![Token::DocKeyword], parse_doc),
+            ValueParser(vec![Token::TestKeyword], parse_test),
             ValueParser(vec![Token::LetKeyword], parse_value_def),
         ],
         |token, message| ParseError {

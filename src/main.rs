@@ -41,9 +41,9 @@ fn main() {
                 ast.errors
             } else {
                 ast.errors
-                // .into_iter()
-                // .filter(|e| e.priority >= 0)
-                // .collect::<Vec<_>>()
+                    .into_iter()
+                    .filter(|e| e.priority >= 0)
+                    .collect::<Vec<_>>()
             }
         );
     }

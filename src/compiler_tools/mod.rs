@@ -19,7 +19,7 @@ pub fn parse_file<'l, Token: 'l, AST: 'l + Clone + Sync + Send>(
     }
     let input = std::fs::read_to_string(file.clone()).ok()?;
     let tokens = tokenize(input.as_str());
-    let pf = move |file: String| parse_file(file.clone(), tokenize, parse, &cache);
+    let pf = move |file: String| parse_file(file.clone(), tokenize, parse, cache);
     let ast = parse(tokens, Box::new(pf));
     cache.write().ok()?.insert(file, ast.clone());
     Some(ast)

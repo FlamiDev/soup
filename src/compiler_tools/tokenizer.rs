@@ -1,6 +1,6 @@
 use std::{fmt::Debug, str::Chars};
 
-fn split_words(input: &str) -> Vec<(i64, i64, String)> {
+fn split_words(input: String) -> Vec<(i64, i64, String)> {
     fn split_recursive(mut input: Chars, mut total: Vec<String>, current: String) -> Vec<String> {
         let Some(ch) = input.next() else {
             if !current.is_empty() {
@@ -167,7 +167,7 @@ pub fn brackets<Token>(
 /// Parses a complete input file into the correct tokens.
 /// The matcher function should call `other` if it cannot find a matching keyword or operator.
 pub fn parse<Token: Debug + Clone + PartialEq>(
-    input: &str,
+    input: String,
     matcher: fn(&str) -> Token,
     brackets: Vec<MatchingBrackets<Token>>,
     error_token: fn(msg: String) -> Token,

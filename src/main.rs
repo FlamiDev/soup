@@ -1,9 +1,10 @@
 use std::{
-    collections::{HashMap, VecDeque},
-    sync::RwLock,
+    collections::{VecDeque},
 };
 
 use compiler_tools::parse_file;
+use crate::parser::ParseError;
+use crate::tokenizer::Token;
 
 mod compiler_tools;
 mod parser;
@@ -22,25 +23,32 @@ fn main() {
     let performance_mode =
         args.contains(&"performance".to_string()) || args.contains(&"p".to_string());
 
-    let parse_cache = RwLock::new(HashMap::new());
-    let Some(ast) = parse_file(file.clone(), tokenizer::parse, parser::parse, &parse_cache) else {
-        println!("Could not read file '{}'", file);
-        return;
-    };
+    let ast = parse_file(
+        file.clone(),
+        tokenizer::parse,
+        parser::parse,
+        |line_no, word_no, message| ParseError{
+            token: Token::ImportKeyword,
+            line_no,
+            word_no,
+            priority: 0,
+            why: message
+        }
+    );
 
     if !performance_mode {
         println!("DEBUG -- AST:");
         println!(">>>>>>>>>> TYPES <<<<<<<<<<");
-        println!("{:#?}", ast.types);
+        println!("{:#?}", ast.0.get(&file.clone()).unwrap().types);
         println!(">>>>>>>>>> VALUES <<<<<<<<<<");
-        println!("{:#?}", ast.values);
+        println!("{:#?}", ast.0.get(&file.clone()).unwrap().values);
         println!(">>>>>>>>>> ERRORS <<<<<<<<<<");
         println!(
             "{:#?}",
             if verbose_mode {
-                ast.errors
+                ast.1
             } else {
-                ast.errors
+                ast.1
                     .into_iter()
                     .filter(|e| e.priority >= 0)
                     .collect::<Vec<_>>()

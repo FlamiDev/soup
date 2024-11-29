@@ -1,14 +1,14 @@
 use std::collections::VecDeque;
 
+use crate::compiler_tools::parser::{ParseResult, Parser, ParserResult, AST};
 use crate::{
     compiler_tools::{
-        parser::{self, Import, ImportParseResult, ValueParser, AST},
+        parser::{self, Import},
         tokenizer::PositionedToken,
-        ParseFile,
     },
     tokenizer::Token,
-    type_parser::{parse_type_def, Type, TypeDef},
-    value_parser::{parse_doc, parse_test, parse_value_def, ValueDef},
+    type_parser::{parse_type_def, TypeDef},
+    value_parser::{parse_value_def, ValueDef},
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -34,88 +34,75 @@ pub fn err<T>(token: PositionedToken<Token>, why: &str, priority: i64) -> Result
     Err(parse_error(token, why, priority))
 }
 
+pub fn error_vec(token: PositionedToken<Token>, why: &str, priority: i64,) -> Vec<ParseError> {
+    vec![parse_error(token, why, priority)]
+}
+
+pub fn err_vec<T>(token: PositionedToken<Token>, why: &str, priority: i64,) -> Result<T, Vec<ParseError>> {
+    Err(error_vec(token, why, priority))
+}
+
+pub fn error(token: PositionedToken<Token>, why: &str, priority: i64,) -> ParserResult<TypeDef, ValueDef, ParseError> { 
+    ParserResult::Error(error_vec(token, why, priority))
+}
+
 pub fn parse(
     tokens: Vec<PositionedToken<Token>>,
-    parse_file: ParseFile<AST<TypeDef, ValueDef, ParseError>>,
-) -> AST<TypeDef, ValueDef, ParseError> {
+) -> ParseResult<AST<TypeDef, ValueDef>, ParseError> {
     parser::parse(
         tokens,
         Token::NewLine,
         Token::ImportKeyword,
-        Token::ExportKeyword,
-        Token::TypeKeyword,
-        vec![
-            TypeDef {
-                name: "Int".to_string(),
-                args: Vec::new(),
-                value: Type::Builtin("Int".to_string()),
-            },
-            TypeDef {
-                name: "Float".to_string(),
-                args: Vec::new(),
-                value: Type::Builtin("Float".to_string()),
-            },
-            TypeDef {
-                name: "String".to_string(),
-                args: Vec::new(),
-                value: Type::Builtin("String".to_string()),
-            },
-        ],
         parse_import,
-        parse_type_def,
+        vec![Token::DocKeyword, Token::TestKeyword, Token::ExportKeyword],
         vec![
-            ValueParser(vec![Token::DocKeyword], parse_doc),
-            ValueParser(vec![Token::TestKeyword], parse_test),
-            ValueParser(vec![Token::LetKeyword], parse_value_def),
+            Parser(Token::TypeKeyword, parse_type_def),
+            //Parser(Token::TraitKeyword, parse_trait_def),
+            Parser(Token::LetKeyword, parse_value_def),
         ],
-        |token, message| ParseError {
+        |token, message, priority| ParseError {
             line_no: token.line_no,
             word_no: token.word_no,
             token: token.token,
             why: message,
-            priority: 0,
+            priority,
         },
-        parse_file,
     )
 }
 
 fn parse_import(
+    token: PositionedToken<Token>,
     mut tokens: VecDeque<PositionedToken<Token>>,
-) -> ImportParseResult<Import, ParseError> {
+) -> Result<Import, ParseError> {
+    let Token::ImportKeyword = token.token else {
+        return Err(parse_error(token, "Expected import keyword", 0));
+    };
     let Some(token) = tokens.pop_front() else {
-        return ImportParseResult::Failure;
+        return Err(parse_error(token, "Expected type name after import keyword", 0));
     };
     let Token::Type(ref name) = token.token else {
-        return ImportParseResult::Error(parse_error(
+        return Err(parse_error(
             token,
             "Expected type name after import keyword",
             0,
         ));
     };
     let Some(token) = tokens.pop_front() else {
-        return ImportParseResult::Error(parse_error(
-            token,
-            "Expected file path after type name",
-            0,
-        ));
+        return Err(parse_error(token, "Expected file path after type name", 0));
     };
     let Token::String(path) = token.token else {
-        return ImportParseResult::Error(parse_error(
-            token,
-            "Expected file path after type name",
-            0,
-        ));
+        return Err(parse_error(token, "Expected file path after type name", 0));
     };
     if let Some(end) = tokens.pop_front() {
         let Token::NewLine = end.token else {
-            return ImportParseResult::Error(parse_error(
+            return Err(parse_error(
                 end,
                 "Expected newline after import statement",
                 0,
             ));
         };
     }
-    ImportParseResult::Success(Import {
+    Ok(Import {
         name: name.clone(),
         from: path,
     })

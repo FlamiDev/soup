@@ -12,6 +12,7 @@ pub enum Token {
     ImportKeyword,
     ExportKeyword,
     TraitKeyword,
+    RetKeyword,
     EqualsSign,
     DoubleEqualsSign,
     NotEqualsSign,
@@ -53,7 +54,7 @@ pub enum Token {
     Invalid(String),
 }
 
-pub fn parse(input: &str) -> Vec<PositionedToken<Token>> {
+pub fn parse(input: String) -> Vec<PositionedToken<Token>> {
     tokenizer::parse(
         input,
         |word| match word {
@@ -67,6 +68,7 @@ pub fn parse(input: &str) -> Vec<PositionedToken<Token>> {
             "import" => Token::ImportKeyword,
             "export" => Token::ExportKeyword,
             "trait" => Token::TraitKeyword,
+            "ret" => Token::RetKeyword,
             "=" => Token::EqualsSign,
             "==" => Token::DoubleEqualsSign,
             "!=" => Token::NotEqualsSign,

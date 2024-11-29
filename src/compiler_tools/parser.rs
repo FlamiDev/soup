@@ -1,7 +1,5 @@
-use rayon::prelude::*;
+use super::tokenizer::PositionedToken;
 use std::{collections::VecDeque, fmt::Debug};
-
-use super::{tokenizer::PositionedToken, ParseFile};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Import {
@@ -9,257 +7,141 @@ pub struct Import {
     pub from: String,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct ImportExport<Token: Debug> {
-    pub token: Token,
-    type_: ImportExportType,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum ImportExportType {
-    Internal,
-    Exported,
-    Imported(Import),
-}
+type ImportParser<Token, Error> =
+    fn(PositionedToken<Token>, VecDeque<PositionedToken<Token>>) -> Result<Import, Error>;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, PartialEq, Clone)]
-pub struct AST<Type: Debug, Value: Debug, Error: Debug> {
-    pub types: Vec<ImportExport<Type>>,
-    pub values: Vec<ImportExport<Value>>,
-    pub errors: Vec<Error>,
+pub struct AST<Type: Debug, Value: Debug> {
+    pub imports: Vec<Import>,
+    pub types: Vec<Type>,
+    pub values: Vec<Value>,
 }
 
-pub enum ImportParseResult<Import, Error> {
-    Success(Import),
-    Error(Error),
-    Failure,
-}
-
-type TypeParserFn<Token, Type, Error> = fn(
-    PositionedToken<Token>,
-    VecDeque<PositionedToken<Token>>,
-    &Vec<ImportExport<Type>>,
-) -> TypeParseResult<Type, Error>;
-
-pub enum TypeParseResult<Type, Error> {
-    Type(Type),
-    Error(Error),
-}
-
-pub struct ValueParser<Token, Type: Debug, Value: Debug, Take, Error>(
-    pub Vec<Token>,
-    pub ValueParserFn<Token, Type, Value, Take, Error>,
+#[derive(Debug, PartialEq, Clone)]
+pub struct Parser<Token: Debug + PartialEq + Clone, Type, Value, Error>(
+    pub Token,
+    pub ParserFn<Token, Type, Value, Error>,
 );
 
-type ValueParserFn<Token, Type, Value, Take, Error> = fn(
-    PositionedToken<Token>,
-    VecDeque<PositionedToken<Token>>,
-    &mut Vec<Take>,
-    &Vec<ImportExport<Type>>,
-    &Vec<ImportExport<Value>>,
-) -> ValueParseResult<Value, Take, Error>;
+pub type ParserFn<Token, Type, Value, Error> = fn(
+    Vec<(PositionedToken<Token>, VecDeque<PositionedToken<Token>>)>,
+) -> ParserResult<Type, Value, Error>;
 
-pub enum ValueParseResult<Value, Take, Error> {
+pub enum ParserResult<Type, Value, Error> {
+    Type(Type),
     Value(Value),
-    TakeToNext(Take),
     Error(Vec<Error>),
 }
 
-#[allow(clippy::too_many_arguments)]
+#[derive(Debug, PartialEq, Clone)]
+pub struct ParseResult<AST: Debug, Error: Debug>(
+    pub Vec<PositionedToken<String>>,
+    pub AST,
+    pub Vec<Error>,
+);
+
 pub fn parse<
-    Token: PartialEq + Debug + Clone + Send,
-    Type: PartialEq + Debug + Clone + Send,
-    Value: PartialEq + Debug + Clone + Send,
-    Take: PartialEq + Debug + Clone + Send,
-    Error: PartialEq + Debug + Clone + Send,
+    Token: PartialEq + Debug + Clone,
+    Type: PartialEq + Debug + Clone,
+    Value: PartialEq + Debug + Clone,
+    Error: PartialEq + Debug + Clone,
 >(
     tokens: Vec<PositionedToken<Token>>,
     newline_token: Token,
     import_token: Token,
-    export_token: Token,
-    type_token: Token,
-    predefined_types: Vec<Type>,
-    parse_import: fn(VecDeque<PositionedToken<Token>>) -> ImportParseResult<Import, Error>,
-    parse_type: TypeParserFn<Token, Type, Error>,
-    parse_others: Vec<ValueParser<Token, Type, Value, Take, Error>>,
-    create_error: fn(PositionedToken<Token>, String) -> Error,
-    parse_file: ParseFile<'_, AST<Type, Value, Error>>,
-) -> AST<Type, Value, Error> {
-    let mut types: Vec<ImportExport<Type>> = predefined_types
-        .into_iter()
-        .map(|t| ImportExport {
-            token: t,
-            type_: ImportExportType::Internal,
-        })
-        .collect();
-    let mut values = vec![];
-    let mut errors = vec![];
-    let mut split_on = vec![
-        import_token.clone(),
-        export_token.clone(),
-        type_token.clone(),
-    ];
-    split_on.extend(parse_others.iter().flat_map(|p| p.0.clone()));
-    let tokens = split_starting(tokens, split_on);
+    parse_import: ImportParser<Token, Error>,
+    take_next: Vec<Token>,
+    parsers: Vec<Parser<Token, Type, Value, Error>>,
+    create_error: fn(PositionedToken<Token>, String, i64) -> Error,
+) -> ParseResult<AST<Type, Value>, Error> {
+    let mut imports = Vec::new();
+    let mut types = Vec::new();
+    let mut values = Vec::new();
+    let mut errors = Vec::new();
+    let mut split_on = vec![import_token.clone()];
+    split_on.extend(take_next.clone());
+    split_on.extend(parsers.iter().map(|p| p.0.clone()));
+    let split_tokens = split_starting(tokens, split_on);
     let mut import_tokens = Vec::new();
-    let mut type_tokens = Vec::new();
-    let mut value_tokens = Vec::new();
-    for mut token in tokens {
-        if token[0].token == import_token {
-            import_tokens.push(token);
+    let mut other_tokens = Vec::new();
+    for tokens in split_tokens {
+        if tokens[0].token == import_token {
+            import_tokens.push(tokens);
             continue;
         }
-        let mut exported = false;
-        if token[0].token == export_token {
-            exported = true;
-            token.remove(0);
-        }
-        if token.is_empty() {
-            continue;
-        }
-        let first = token.remove(0);
-        if first.token == type_token {
-            type_tokens.push(ImportExport {
-                token: (first, token),
-                type_: if exported {
-                    ImportExportType::Exported
-                } else {
-                    ImportExportType::Internal
-                },
-            });
-        } else {
-            value_tokens.push(ImportExport {
-                token: (first, token),
-                type_: if exported {
-                    ImportExportType::Exported
-                } else {
-                    ImportExportType::Internal
-                },
-            });
-        }
+        other_tokens.push(tokens);
     }
-    let imports: Vec<PositionedToken<Import>> = import_tokens
+    let parsed_imports: Vec<PositionedToken<String>> = import_tokens
         .into_iter()
         .filter_map(|mut part| {
-            part.remove(0);
-            let line_no = part[0].line_no;
-            let word_no = part[0].word_no;
-            match parse_import(part.into()) {
-                ImportParseResult::Success(import) => Some(PositionedToken {
-                    line_no,
-                    word_no,
-                    token: import,
-                }),
-                ImportParseResult::Error(error) => {
+            let first = part.remove(0);
+            match parse_import(first.clone(), part.into()) {
+                Ok(import) => {
+                    imports.push(import.clone());
+                    Some(PositionedToken {
+                        token: import.from,
+                        line_no: first.line_no,
+                        word_no: first.word_no,
+                    })
+                }
+                Err(error) => {
                     errors.push(error);
                     None
                 }
-                ImportParseResult::Failure => None,
             }
         })
         .collect();
-    let imported_files = imports
-        .into_par_iter()
-        .map(|import| {
-            parse_file(import.token.from.clone())
-                .map(|i| (import.token.clone(), i))
-                .ok_or(import)
-        })
-        .collect::<Vec<_>>();
-    for import in imported_files {
-        match import {
-            Ok((import, tree)) => {
-                types.extend(tree.types.into_iter().map(|t| ImportExport {
-                    token: t.token,
-                    type_: ImportExportType::Imported(import.clone()),
-                }));
-                values.extend(tree.values.into_iter().map(|v| ImportExport {
-                    token: v.token,
-                    type_: ImportExportType::Imported(import.clone()),
-                }));
-                errors.extend(tree.errors);
-            }
-            Err(token) => {
-                errors.push(create_error(
-                    PositionedToken {
-                        token: import_token.clone(),
-                        line_no: token.line_no,
-                        word_no: token.word_no,
-                    },
-                    format!(
-                        "Could not import file {} from {}",
-                        token.token.name, token.token.from
-                    ),
-                ));
-            }
-        }
-    }
-    for ImportExport { mut token, type_ } in type_tokens {
-        if token.0.token == newline_token {
+    let mut current_tokens = Vec::new();
+    for tokens in other_tokens {
+        let Some(start) = tokens.iter().position(|i| i.token != newline_token) else {
+            continue;
+        };
+        let Some(end) = tokens.iter().rposition(|i| i.token != newline_token) else {
+            continue;
+        };
+        if start > end {
             continue;
         }
-        while let Some(PositionedToken { token: t, .. }) = token.1.last() {
-            if t == &newline_token {
-                token.1.pop();
-            } else {
-                break;
-            }
-        }
-        match parse_type(token.0, token.1.into(), &types) {
-            TypeParseResult::Type(t) => types.push(ImportExport { token: t, type_ }),
-            TypeParseResult::Error(e) => errors.push(e),
-        }
-    }
-    let mut take_to_next = Vec::new();
-    for ImportExport { mut token, type_ } in value_tokens {
-        if token.0.token == newline_token {
+        let mut tokens: VecDeque<PositionedToken<Token>> = tokens[start..=end].to_vec().into();
+        let Some(first) = tokens.pop_front() else {
             continue;
-        }
-        while let Some(PositionedToken { token: t, .. }) = token.1.last() {
-            if t == &newline_token {
-                token.1.pop();
-            } else {
-                break;
-            }
+        };
+        if take_next.contains(&first.token) {
+            current_tokens.push((first, tokens));
+            continue;
         }
         let mut found = false;
-        let first = &token.0;
-        for parser in &parse_others {
-            if parser.0.contains(&first.token) {
-                match (parser.1)(
-                    token.0.clone(),
-                    token.1.into(),
-                    &mut take_to_next,
-                    &types,
-                    &values,
-                ) {
-                    ValueParseResult::Value(v) => values.push(ImportExport { token: v, type_ }),
-                    ValueParseResult::TakeToNext(t) => take_to_next.push(t),
-                    ValueParseResult::Error(e) => errors.extend(e),
+        for parser in &parsers {
+            if parser.0 == (first.token) {
+                current_tokens.push((first.clone(), tokens));
+                match parser.1(current_tokens) {
+                    ParserResult::Type(t) => types.push(t),
+                    ParserResult::Value(v) => values.push(v),
+                    ParserResult::Error(e) => errors.extend(e),
                 }
+                current_tokens = Vec::new();
                 found = true;
                 break;
             }
         }
         if !found {
             errors.push(create_error(
-                first.clone(),
+                first,
                 "Unexpected top-level token".to_string(),
+                -100,
             ));
         }
     }
-    AST {
-        types: types
-            .into_iter()
-            .filter(|t| matches!(t.type_, ImportExportType::Exported))
-            .collect(),
-        values: values
-            .into_iter()
-            .filter(|v| matches!(v.type_, ImportExportType::Exported))
-            .collect(),
+    ParseResult(
+        parsed_imports,
+        AST {
+            imports,
+            types,
+            values,
+        },
         errors,
-    }
+    )
 }
 
 pub fn split_starting<Token: PartialEq + Debug>(
@@ -270,14 +152,6 @@ pub fn split_starting<Token: PartialEq + Debug>(
     let mut current = Vec::new();
     for token in tokens {
         if split_on.contains(&token.token) {
-            if current
-                .last()
-                .map(|t: &PositionedToken<Token>| split_on.contains(&t.token))
-                .unwrap_or(false)
-            {
-                current.push(token);
-                continue;
-            }
             if !current.is_empty() {
                 result.push(current);
             }

@@ -1,4 +1,4 @@
-use std::collections::{VecDeque};
+use std::collections::VecDeque;
 
 use crate::compiler_tools::parser::ParserResult;
 use crate::parser::error;
@@ -32,7 +32,7 @@ pub enum Type {
 pub enum TypeRefPart {
     Type(String),
     Underscore,
-    Inner(Type)
+    Inner(Type),
 }
 
 pub fn parse_type_def(
@@ -96,9 +96,7 @@ pub fn parse_type_def(
     })
 }
 
-fn parse_type(
-    mut tokens: VecDeque<PositionedToken<Token>>,
-) -> Result<Type, ParseError> {
+fn parse_type(mut tokens: VecDeque<PositionedToken<Token>>) -> Result<Type, ParseError> {
     let first = tokens.front().unwrap().clone();
     match first.token {
         Token::Braces(inner) => parse_tuple_type(inner),
@@ -137,12 +135,8 @@ fn parse_joined_tuple_type(
             }
             Token::Braces(ref inner) => {
                 return parse_tuple_type(inner.clone()).and_then(|t| match t {
-                    Type::Tuple(args) => {
-                        Ok(Type::JoinedTuples(joined, args))
-                    }
-                    Type::NamedTuple(args) => Ok(
-                        Type::JoinedNamedTuples(joined, args)
-                    ),
+                    Type::Tuple(args) => Ok(Type::JoinedTuples(joined, args)),
+                    Type::NamedTuple(args) => Ok(Type::JoinedNamedTuples(joined, args)),
                     _ => err(token, "Expected tuple type", 0),
                 });
             }
@@ -154,9 +148,7 @@ fn parse_joined_tuple_type(
     err(last, "Expected parens ending the joined tuple type", 0)
 }
 
-fn parse_tuple_type(
-    mut tokens: Vec<PositionedToken<Token>>,
-) -> Result<Type, ParseError> {
+fn parse_tuple_type(mut tokens: Vec<PositionedToken<Token>>) -> Result<Type, ParseError> {
     if tokens.is_empty() {
         return Ok(Type::Tuple(Vec::new()));
     }
@@ -218,9 +210,7 @@ fn parse_tuple_type(
     }
 }
 
-fn parse_union_type(
-    mut tokens: VecDeque<PositionedToken<Token>>,
-) -> Result<Type, ParseError> {
+fn parse_union_type(mut tokens: VecDeque<PositionedToken<Token>>) -> Result<Type, ParseError> {
     tokens.push_back(PositionedToken {
         line_no: tokens.back().unwrap().line_no,
         word_no: tokens.back().unwrap().word_no + 1,
@@ -259,7 +249,7 @@ pub fn parse_type_ref(
     first: &PositionedToken<Token>,
     mut tokens: VecDeque<PositionedToken<Token>>,
 ) -> Result<Type, ParseError> {
-    let Token::Type(ref name) = first.token else {
+    let Token::Type(mut type_name) = first.token.clone() else {
         return err(
             first.clone(),
             "Type references should start with a type name",
@@ -269,6 +259,28 @@ pub fn parse_type_ref(
     let mut type_args = Vec::new();
     while let Some(token) = tokens.pop_front() {
         match token.token {
+            Token::Dot => {
+                let Some(next) = tokens.pop_front() else {
+                    return err(token, "Expected type name after dot", 0);
+                };
+                let Token::Type(name) = next.token else {
+                    return err(next, "Expected type name after dot", 0);
+                };
+                if let Some(last) = type_args.last_mut() {
+                    match last {
+                        TypeRefPart::Type(ref mut t) => {
+                            t.push('.');
+                            t.push_str(&name);
+                        }
+                        _ => {
+                            return err(token, "Invalid dot token in type reference", 0);
+                        }
+                    }
+                } else {
+                    type_name.push('.');
+                    type_name.push_str(&name);
+                }
+            }
             Token::Type(name) => {
                 type_args.push(TypeRefPart::Type(name));
             }
@@ -284,7 +296,5 @@ pub fn parse_type_ref(
             }
         }
     }
-    Ok(
-        Type::Reference(name.clone(), type_args)
-    )
+    Ok(Type::Reference(type_name.clone(), type_args))
 }

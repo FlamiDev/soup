@@ -235,7 +235,7 @@ fn parse_expression(
     mut body: VecDeque<PositionedToken<Token>>,
 ) -> Result<Expression, Vec<ParseError>> {
     let arguments = take_until(&mut body, |t| matches!(t.token, Token::ArrowRight));
-    let (mut args, mut body) = if body.is_empty() {
+    let (mut args, body) = if body.is_empty() {
         (VecDeque::new(), arguments)
     } else {
         (arguments, body)
@@ -251,8 +251,8 @@ fn parse_expression(
         let Token::Name(ref name) = name_token.token else {
             return err_vec(name_token, "Expected argument name", 0);
         };
-        let mut arg = take_until(&mut body, |t| {
-            matches!(t.token, Token::Name(_) | Token::Type(_))
+        let mut arg = take_until(&mut args, |t| {
+            matches!(t.token, Token::Name(_) | Token::ArrowRight)
         });
         let arg = arg
             .pop_front()
@@ -393,7 +393,8 @@ fn parse_expression_guts(
             ),
         ));
     }
-    Err(Vec::new())
+    let mut tokens = left;
+    err_vec(tokens.front().unwrap().clone(), "TODO_guts!!!", 0)
 }
 
 fn parse_array(

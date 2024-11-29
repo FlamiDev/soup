@@ -1,7 +1,12 @@
 use std::{fmt::Debug, str::Chars};
 
-fn split_words(input: String) -> Vec<(i64, i64, String)> {
-    fn split_recursive(mut input: Chars, mut total: Vec<String>, current: String) -> Vec<String> {
+fn split_words(input: String, bracket_chars: &[char]) -> Vec<(i64, i64, String)> {
+    fn split_recursive(
+        mut input: Chars,
+        mut total: Vec<String>,
+        current: String,
+        bracket_chars: &[char],
+    ) -> Vec<String> {
         let Some(ch) = input.next() else {
             if !current.is_empty() {
                 total.push(current);
@@ -9,52 +14,54 @@ fn split_words(input: String) -> Vec<(i64, i64, String)> {
             return total;
         };
         if current.starts_with('\"') {
-            if ch == '\"' && !current.ends_with('\\') {
+            return if ch == '\"' && !current.ends_with('\\') {
                 total.push(format!("{}{}", current, ch));
-                return split_recursive(input, total, String::new());
+                split_recursive(input, total, String::new(), bracket_chars)
             } else {
-                return split_recursive(input, total, format!("{}{}", current, ch));
-            }
+                split_recursive(input, total, format!("{}{}", current, ch), bracket_chars)
+            };
         }
         if ch.is_whitespace() {
             if !current.is_empty() {
                 total.push(current);
             }
-            return split_recursive(input, total, String::new());
+            return split_recursive(input, total, String::new(), bracket_chars);
         }
         match current.chars().last() {
-            None => split_recursive(input, total, ch.to_string()),
+            None => split_recursive(input, total, ch.to_string(), bracket_chars),
             Some(last) => {
+                let is_or_was_bracket =
+                    bracket_chars.contains(&last) || bracket_chars.contains(&ch);
                 let same_word =
-                    (last.is_alphanumeric() && ch.is_alphanumeric()) || ch == '_' || last == '_';
-                if same_word {
-                    split_recursive(input, total, format!("{}{}", current, ch))
+                    (last.is_alphanumeric() == ch.is_alphanumeric()) || ch == '_' || last == '_';
+                if same_word && !is_or_was_bracket {
+                    split_recursive(input, total, format!("{}{}", current, ch), bracket_chars)
                 } else {
                     total.push(current);
-                    split_recursive(input, total, ch.to_string())
+                    split_recursive(input, total, ch.to_string(), bracket_chars)
                 }
             }
         }
     }
-    return input
+    input
         .lines()
         .enumerate()
         .flat_map(|(line_no, line)| {
             if line.starts_with("//") {
                 return Vec::new();
             }
-            let mut res = split_recursive(line.chars(), Vec::new(), String::new());
+            let mut res = split_recursive(line.chars(), Vec::new(), String::new(), bracket_chars);
             res.push("\n".to_string());
             res.iter()
                 .enumerate()
                 .map(|(i, word)| (line_no as i64 + 1, i as i64 + 1, word.to_string()))
                 .collect::<Vec<(i64, i64, String)>>()
         })
-        .collect();
+        .collect()
 }
 
 /// Parses any word that isn't a hardcoded keyword or operator.
-/// Can parse types `CamelCase`, names `snake_case`, ints, floats.
+/// Can parse types `PascalCase`, names `snake_case`, ints, floats.
 /// Everything else becomes a string.
 /// Empty words, names containing numbers or vice versa, and invalid string become the error token.
 pub fn other<Token>(
@@ -145,16 +152,20 @@ impl<Token: Debug> Debug for PositionedToken<Token> {
 }
 
 #[derive(Clone)]
-struct StackItem<Token>(Vec<PositionedToken<Token>>, Option<MatchingBrackets<Token>>);
+struct StackItem<'l, Token>(
+    Vec<PositionedToken<Token>>,
+    Option<&'l MatchingBrackets<Token>>,
+);
+
 #[derive(Clone)]
 pub struct MatchingBrackets<Token> {
-    pub open: Token,
-    pub close: Token,
+    pub open: char,
+    pub close: char,
     pub create: fn(Vec<PositionedToken<Token>>) -> Token,
 }
 pub fn brackets<Token>(
-    open: Token,
-    close: Token,
+    open: char,
+    close: char,
     create: fn(Vec<PositionedToken<Token>>) -> Token,
 ) -> MatchingBrackets<Token> {
     MatchingBrackets {
@@ -172,18 +183,21 @@ pub fn parse<Token: Debug + Clone + PartialEq>(
     brackets: Vec<MatchingBrackets<Token>>,
     error_token: fn(msg: String) -> Token,
 ) -> Vec<PositionedToken<Token>> {
-    let words = split_words(input);
+    let bracket_chars: Vec<char> = brackets
+        .iter()
+        .flat_map(|b| vec![b.open, b.close])
+        .collect();
+    let words = split_words(input, &bracket_chars);
     let mut stack = vec![StackItem(Vec::new(), None)];
     for (line_no, word_no, word) in words {
-        let token = matcher(word.as_str());
-        if let Some(bracket_open) = brackets.iter().find(|b| token == b.open) {
-            stack.push(StackItem(Vec::new(), Some(bracket_open.clone())));
+        let Some(first_char) = word.chars().next() else {
             continue;
         };
-        if let Some(bracket_close) = brackets.iter().find(|b| token == b.close) {
-            if stack.is_empty() {
-                panic!("Stack should always contain the root element");
-            }
+        if let Some(bracket_open) = brackets.iter().find(|b| first_char == b.open) {
+            stack.push(StackItem(Vec::new(), Some(bracket_open)));
+            continue;
+        };
+        if let Some(bracket_close) = brackets.iter().find(|b| first_char == b.close) {
             while let Some(StackItem(mut tokens, bracket)) = stack.pop() {
                 let Some(bracket) = bracket else {
                     // Popped the root
@@ -201,7 +215,7 @@ pub fn parse<Token: Debug + Clone + PartialEq>(
 
                 let last = stack
                     .last_mut()
-                    .expect("Stack should always contain the root element");
+                    .expect("Tokenizer stack should always contain the root element");
 
                 if bracket.close == bracket_close.close {
                     let pos = tokens
@@ -228,12 +242,12 @@ pub fn parse<Token: Debug + Clone + PartialEq>(
         };
         stack
             .last_mut()
-            .expect("Stack should always contain the root element")
+            .expect("Tokenizer stack should always contain the root element")
             .0
             .push(PositionedToken {
                 line_no,
                 word_no,
-                token,
+                token: matcher(word.as_str()),
             });
     }
     stack

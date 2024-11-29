@@ -1,8 +1,8 @@
 use crate::compiler_tools::parser::ParseResult;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelIterator;
+use std::collections::HashMap;
 use std::fmt::Debug;
-use std::{collections::HashMap, sync::RwLock};
 use tokenizer::PositionedToken;
 
 #[macro_use]
@@ -25,7 +25,11 @@ pub fn parse_file<
 ) -> ParseFileResult<AST, Error> {
     let mut result = HashMap::new();
     let mut errors = Vec::new();
-    let mut imports = vec![PositionedToken{ token: file, line_no: 0, word_no: 0 }];
+    let mut imports = vec![PositionedToken {
+        token: file,
+        line_no: 0,
+        word_no: 0,
+    }];
 
     while !imports.is_empty() {
         let parsed = imports
@@ -46,7 +50,11 @@ pub fn parse_file<
             errors.extend(res.2);
         }
         errors.extend(parsed.1.into_iter().map(|t| {
-            create_error(t.line_no, t.word_no, format!("Could not read file '{}'", t.token))
+            create_error(
+                t.line_no,
+                t.word_no,
+                format!("Could not read file '{}'", t.token),
+            )
         }));
     }
     ParseFileResult(result, errors)

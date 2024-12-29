@@ -1,9 +1,9 @@
 use std::collections::VecDeque;
 
 use crate::compiler_tools::parser::ParserResult;
-use crate::compiler_tools::UnzipResult;
+use crate::compiler_tools::{take_until, UnzipResult};
 use crate::parser::{err_vec, error};
-use crate::type_parser::{parse_type_ref, Type};
+use crate::type_parser::{parse_type, Type};
 use crate::{
     compiler_tools::{parser::split_starting, tokenizer::PositionedToken},
     parser::{err, parse_error, ParseError},
@@ -184,8 +184,8 @@ pub fn parse_value_def(
         _ => return error(name_token, "Expected value name", 0),
     };
     let mut type_tokens = take_until(&mut tokens, |t| matches!(t.token, Token::EqualsSign));
-    let type_ = if let Some(first) = type_tokens.pop_front() {
-        match parse_type_ref(&first, type_tokens) {
+    let type_ = if type_tokens.front().is_some() {
+        match parse_type(type_tokens) {
             Ok(t) => Some(t),
             Err(e) => return ParserResult::Error(vec![e]),
         }
@@ -234,6 +234,7 @@ fn parse_instruction(
 fn parse_expression(
     mut body: VecDeque<PositionedToken<Token>>,
 ) -> Result<Expression, Vec<ParseError>> {
+    let mut errors = Vec::new();
     let arguments = take_until(&mut body, |t| matches!(t.token, Token::ArrowRight));
     let (mut args, body) = if body.is_empty() {
         (VecDeque::new(), arguments)
@@ -251,14 +252,21 @@ fn parse_expression(
         let Token::Name(ref name) = name_token.token else {
             return err_vec(name_token, "Expected argument name", 0);
         };
-        let mut arg = take_until(&mut args, |t| {
+        let arg = take_until(&mut args, |t| {
             matches!(t.token, Token::Name(_) | Token::ArrowRight)
         });
-        let arg = arg
-            .pop_front()
-            .map(|f| parse_type_ref(&f, arg).map_err(|e| vec![e]))
-            .transpose()?;
-        arguments.push((arg, name.clone(), name_token));
+        let arg = if arg.is_empty() {
+            Type::CompilerFigureItOut
+        } else {
+            match parse_type(arg) {
+                Ok(t) => t,
+                Err(e) => {
+                    errors.push(e);
+                    Type::CompilerFigureItOut
+                }
+            }
+        };
+        arguments.push((arg, name.clone()));
     }
     let mut split = split_starting(
         body.into(),
@@ -267,20 +275,21 @@ fn parse_expression(
     let Some(res) = split.pop() else {
         return err_vec(first_body_token, "Expected expression return value", 0);
     };
-    let (body, mut errors) = split
+    let (body, body_errors) = split
         .into_iter()
         .map(|i| parse_instruction(VecDeque::from(i)))
         .unzip_result();
+    errors.extend(body_errors.into_iter().flatten());
     let guts = parse_expression_guts(res.into());
     let guts = match guts {
         Ok(g) => g,
         Err(e) => {
-            errors.push(e);
-            return Err(errors.into_iter().flatten().collect());
+            errors.extend(e);
+            return Err(errors);
         }
     };
     if !errors.is_empty() {
-        return Err(errors.into_iter().flatten().collect());
+        return Err(errors);
     }
     if body.is_empty() {
         Ok(guts)
@@ -297,16 +306,7 @@ fn parse_expression(
             Ok(Expression(
                 return_type,
                 ExpressionValue::Function {
-                    args: arguments
-                        .into_iter()
-                        .map(|(t, n, token)| {
-                            t.map(|t| (t, n.clone())).ok_or(parse_error(
-                                token,
-                                format!("Cannot infer type for argument {}", n).as_str(),
-                                0,
-                            ))
-                        })
-                        .all_ok()?,
+                    args: arguments,
                     body: Box::new(block),
                 },
             ))
@@ -314,7 +314,6 @@ fn parse_expression(
     }
 }
 
-#[inline(always)]
 fn parse_expression_guts(
     mut tokens: VecDeque<PositionedToken<Token>>,
 ) -> Result<Expression, Vec<ParseError>> {
@@ -417,30 +416,8 @@ fn parse_array(
         }
     }
     expressions.push(parse_expression(current_tokens)?);
-    if !expressions.iter().all(|e| e.0 == expressions[0].0) {
-        return err_vec(
-            tokens.front().unwrap().clone(),
-            "Array elements must have the same type",
-            0,
-        );
-    }
     Ok(Expression(
         expressions[0].0.clone(),
         ExpressionValue::Array(expressions),
     ))
-}
-
-fn take_until(
-    tokens: &mut VecDeque<PositionedToken<Token>>,
-    predicate: impl Fn(&PositionedToken<Token>) -> bool,
-) -> VecDeque<PositionedToken<Token>> {
-    let mut result = VecDeque::new();
-    while let Some(token) = tokens.pop_front() {
-        if predicate(&token) {
-            tokens.push_front(token);
-            break;
-        }
-        result.push_back(token);
-    }
-    result
 }

@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::compiler_tools::parser::ParserResult;
+use crate::compiler_tools::take_until;
 use crate::parser::error;
 use crate::value_parser::ValueDef;
 use crate::{
@@ -21,6 +22,8 @@ pub enum Type {
     Generic(String),
     CompilerFigureItOut,
     Reference(String, Vec<TypeRefPart>),
+    Array(Box<Type>),
+    Function(Vec<Type>, Box<Type>),
     Union(Vec<(String, Option<Type>)>),
     Tuple(Vec<Type>),
     NamedTuple(Vec<(String, Type)>),
@@ -96,10 +99,24 @@ pub fn parse_type_def(
     })
 }
 
-fn parse_type(mut tokens: VecDeque<PositionedToken<Token>>) -> Result<Type, ParseError> {
+pub fn parse_type(mut tokens: VecDeque<PositionedToken<Token>>) -> Result<Type, ParseError> {
     let first = tokens.front().unwrap().clone();
     match first.token {
         Token::Braces(inner) => parse_tuple_type(inner),
+        Token::Array(ref inner) => {
+            if inner.is_empty() {
+                err(first, "Empty array types are not a valid type", 0)
+            } else {
+                parse_type(inner.to_owned().into()).map(|t| Type::Array(Box::new(t)))
+            }
+        }
+        Token::Parens(ref inner) => {
+            if inner.is_empty() {
+                err(first, "Empty parens are not a valid type", 0)
+            } else {
+                parse_function_type(inner.to_owned().into())
+            }
+        }
         Token::Type(_) => {
             if tokens.iter().any(|t| t.token == Token::VerticalBar) {
                 parse_union_type(tokens)
@@ -112,6 +129,31 @@ fn parse_type(mut tokens: VecDeque<PositionedToken<Token>>) -> Result<Type, Pars
         }
         _ => err(first, "Invalid type", 0),
     }
+}
+
+fn parse_function_type(mut tokens: VecDeque<PositionedToken<Token>>) -> Result<Type, ParseError> {
+    let first = tokens.front().unwrap().clone();
+    let args_tokens = take_until(&mut tokens, |t| matches!(t.token, Token::ArrowRight));
+    let mut args = Vec::new();
+    let mut current_arg = VecDeque::new();
+    for arg in args_tokens {
+        match arg.token {
+            Token::Comma => {
+                let t = parse_type(current_arg)?;
+                args.push(t);
+                current_arg = VecDeque::new();
+            }
+            _ => {
+                current_arg.push_back(arg);
+            }
+        }
+    }
+    args.push(parse_type(current_arg)?);
+    let Some(Token::ArrowRight) = tokens.pop_front().map(|t| t.token) else {
+        return err(first, "Expected arrow", 0);
+    };
+    let return_type = parse_type(tokens)?;
+    Ok(Type::Function(args, Box::new(return_type)))
 }
 
 fn parse_joined_tuple_type(
@@ -166,10 +208,10 @@ fn parse_tuple_type(mut tokens: Vec<PositionedToken<Token>>) -> Result<Type, Par
                 current_name = name.clone();
             }
             Token::Comma => {
-                let Some(first) = current_type.pop_front() else {
+                let Some(_) = current_type.front() else {
                     return err(token, "Expected type", 0);
                 };
-                let t = parse_type_ref(&first, current_type)?;
+                let t = parse_type(current_type)?;
                 if current_name.is_empty() {
                     args.push(t);
                 } else {
@@ -184,10 +226,10 @@ fn parse_tuple_type(mut tokens: Vec<PositionedToken<Token>>) -> Result<Type, Par
         }
     }
     let last = current_type.back().unwrap_or(&last_token).clone();
-    let Some(first) = current_type.pop_front() else {
+    let Some(_) = current_type.front() else {
         return err(last, "Expected type", 0);
     };
-    let t = parse_type_ref(&first, current_type)?;
+    let t = parse_type(current_type)?;
     if current_name.is_empty() {
         args.push(t);
     } else {
@@ -233,7 +275,7 @@ fn parse_union_type(mut tokens: VecDeque<PositionedToken<Token>>) -> Result<Type
                     current_part = VecDeque::new();
                     continue;
                 }
-                let t = parse_type_ref(&current_part.pop_front().unwrap(), current_part)?;
+                let t = parse_type(current_part)?;
                 parts.push((label, Some(t)));
                 current_part = VecDeque::new();
             }
@@ -245,7 +287,7 @@ fn parse_union_type(mut tokens: VecDeque<PositionedToken<Token>>) -> Result<Type
     Ok(Type::Union(parts))
 }
 
-pub fn parse_type_ref(
+fn parse_type_ref(
     first: &PositionedToken<Token>,
     mut tokens: VecDeque<PositionedToken<Token>>,
 ) -> Result<Type, ParseError> {

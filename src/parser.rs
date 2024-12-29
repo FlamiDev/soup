@@ -34,15 +34,23 @@ pub fn err<T>(token: PositionedToken<Token>, why: &str, priority: i64) -> Result
     Err(parse_error(token, why, priority))
 }
 
-pub fn error_vec(token: PositionedToken<Token>, why: &str, priority: i64,) -> Vec<ParseError> {
+pub fn error_vec(token: PositionedToken<Token>, why: &str, priority: i64) -> Vec<ParseError> {
     vec![parse_error(token, why, priority)]
 }
 
-pub fn err_vec<T>(token: PositionedToken<Token>, why: &str, priority: i64,) -> Result<T, Vec<ParseError>> {
+pub fn err_vec<T>(
+    token: PositionedToken<Token>,
+    why: &str,
+    priority: i64,
+) -> Result<T, Vec<ParseError>> {
     Err(error_vec(token, why, priority))
 }
 
-pub fn error(token: PositionedToken<Token>, why: &str, priority: i64,) -> ParserResult<TypeDef, ValueDef, ParseError> { 
+pub fn error(
+    token: PositionedToken<Token>,
+    why: &str,
+    priority: i64,
+) -> ParserResult<TypeDef, ValueDef, ParseError> {
     ParserResult::Error(error_vec(token, why, priority))
 }
 
@@ -78,7 +86,11 @@ fn parse_import(
         return Err(parse_error(token, "Expected import keyword", 0));
     };
     let Some(token) = tokens.pop_front() else {
-        return Err(parse_error(token, "Expected type name after import keyword", 0));
+        return Err(parse_error(
+            token,
+            "Expected type name after import keyword",
+            0,
+        ));
     };
     let Token::Type(ref name) = token.token else {
         return Err(parse_error(

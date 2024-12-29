@@ -1,0 +1,18 @@
+import W "web_framework"
+
+let some_page = s ->
+    use (count, set_count) <- W.state s 0
+    use (text, set_text) <- W.state s ""
+    W.div! [
+        W.h1! "Some page",
+        W.p! "This is a page with some state",
+        W.p! ("The count is: %d" W.render count),
+        W.button!
+            "Increment"
+            (_ -> set_count (count.value + 1)),
+        W.button!
+            "Decrement"
+            (_ -> set_count (count.value - 1)),
+        W.p! ("The text is: %s" W.render text),
+        W.text_field! text set_text
+    ]

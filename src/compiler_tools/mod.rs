@@ -1,7 +1,7 @@
 use crate::compiler_tools::parser::ParseResult;
 use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelIterator;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use tokenizer::PositionedToken;
 
@@ -62,6 +62,21 @@ pub fn parse_file<
 
 fn read_file(file: String) -> Option<String> {
     std::fs::read_to_string(file).ok()
+}
+
+pub fn take_until<Token>(
+    tokens: &mut VecDeque<PositionedToken<Token>>,
+    predicate: impl Fn(&PositionedToken<Token>) -> bool,
+) -> VecDeque<PositionedToken<Token>> {
+    let mut result = VecDeque::new();
+    while let Some(token) = tokens.pop_front() {
+        if predicate(&token) {
+            tokens.push_front(token);
+            break;
+        }
+        result.push_back(token);
+    }
+    result
 }
 
 pub trait UnzipResult<V, E> {

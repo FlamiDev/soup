@@ -1,20 +1,11 @@
-use parser_lib::{parser, split_words, Keyword, Parser, VecWindow};
+use crate::parser::parser;
+use parser_lib::{split_words, DynSafeParser, VecWindow};
 
-mod compiler_tools;
 mod parser;
-mod tokenizer;
-mod type_parser;
-mod value_parser;
-//
-// fn main() {
-//     let parser: chumsky::primitive::Just<&str, &str, Simple<&str>> = just("hey");
-//     let res = parser.parse([]);
-//     println!("{:#?}", res);
-// }
 
 fn main() {
     let words = split_words("foo baz", "(){}[]");
-    let parser = parser().keyword(Keyword("foo")).keyword(Keyword("bar"));
+    let parser = parser();
     let res = parser.parse(VecWindow::from(&words));
     println!("{:#?}", res);
 }

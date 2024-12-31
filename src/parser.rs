@@ -1,121 +1,138 @@
-use std::collections::VecDeque;
+use parser_lib::{new_parser, recursive, todo, Keyword, Parser, StringResult, Word};
 
-use crate::compiler_tools::parser::{ParseResult, Parser, ParserResult, AST};
-use crate::{
-    compiler_tools::{
-        parser::{self, Import},
-        tokenizer::PositionedToken,
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(clippy::upper_case_acronyms)]
+pub enum AST {
+    Import {
+        name: Word,
+        from: StringResult,
     },
-    tokenizer::Token,
-    type_parser::{parse_type_def, TypeDef},
-    value_parser::{parse_value_def, ValueDef},
-};
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct ParseError {
-    pub line_no: i64,
-    pub word_no: i64,
-    pub token: Token,
-    pub why: String,
-    pub priority: i64,
+    Type {
+        name: Word,
+        value: Type,
+    },
+    DocComment {
+        comment: StringResult,
+    },
+    TestBlock {
+        description: StringResult,
+        block: Block,
+    },
+    Let {
+        to: MatchItem,
+        type_: Option<Word>,
+        from: MatchItem,
+    },
 }
 
-pub fn parse_error(token: PositionedToken<Token>, why: &str, priority: i64) -> ParseError {
-    ParseError {
-        line_no: token.line_no,
-        word_no: token.word_no,
-        token: token.token,
-        why: why.to_string(),
-        priority,
-    }
+const IMPORT_KEYWORD: Keyword = Keyword("import");
+const TYPE_KEYWORD: Keyword = Keyword("type");
+const DOC_COMMENT_KEYWORD: Keyword = Keyword("doc");
+const TEST_BLOCK_KEYWORD: Keyword = Keyword("test");
+const LET_KEYWORD: Keyword = Keyword("let");
+const ARRAY_OPEN: Keyword = Keyword("[");
+const ARRAY_CLOSE: Keyword = Keyword("]");
+const TUPLE_OPEN: Keyword = Keyword("{");
+const TUPLE_CLOSE: Keyword = Keyword("}");
+const SCOPE_OPEN: Keyword = Keyword("(");
+const SCOPE_CLOSE: Keyword = Keyword(")");
+const EQUALS: Keyword = Keyword("=");
+
+pub fn parser() -> impl Parser<Vec<AST>> {
+    new_parser("ast_import")
+        .keyword(IMPORT_KEYWORD)
+        .type_name()
+        .string()
+        .map(|((_, name), from)| AST::Import { name, from })
+        .or(new_parser("ast_type")
+            .keyword(TYPE_KEYWORD)
+            .type_name()
+            .keyword(EQUALS)
+            .and(type_parser())
+            .map(|((_, name), value)| AST::Type { name, value }))
+        .or(new_parser("ast_doc")
+            .keyword(DOC_COMMENT_KEYWORD)
+            .string()
+            .map(|(_, comment)| AST::DocComment { comment }))
+        .or(new_parser("ast_test")
+            .keyword(TEST_BLOCK_KEYWORD)
+            .string()
+            .and(block_parser())
+            .map(|((_, description), block)| AST::TestBlock { description, block }))
+        .or(new_parser("ast_let")
+            .keyword(LET_KEYWORD)
+            .and(match_item_parser())
+            .and(
+                new_parser("ast_let_maybe_type")
+                    .type_name()
+                    .optional()
+                    .map(|a| a.map(|(_, t)| t)),
+            )
+            .keyword(EQUALS)
+            .and(match_item_parser())
+            .map(|(((_, to), type_), from)| AST::Let { to, type_, from }))
+        .repeat()
 }
 
-pub fn err<T>(token: PositionedToken<Token>, why: &str, priority: i64) -> Result<T, ParseError> {
-    Err(parse_error(token, why, priority))
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MatchItem {
+    Array(Vec<MatchItem>),
+    Tuple(Vec<(Option<Word>, MatchItem)>),
+    Label(Word, Box<MatchItem>),
+    Name(Word),
+    Value(Value),
 }
 
-pub fn error_vec(token: PositionedToken<Token>, why: &str, priority: i64) -> Vec<ParseError> {
-    vec![parse_error(token, why, priority)]
-}
-
-pub fn err_vec<T>(
-    token: PositionedToken<Token>,
-    why: &str,
-    priority: i64,
-) -> Result<T, Vec<ParseError>> {
-    Err(error_vec(token, why, priority))
-}
-
-pub fn error(
-    token: PositionedToken<Token>,
-    why: &str,
-    priority: i64,
-) -> ParserResult<TypeDef, ValueDef, ParseError> {
-    ParserResult::Error(error_vec(token, why, priority))
-}
-
-pub fn parse(
-    tokens: Vec<PositionedToken<Token>>,
-) -> ParseResult<AST<TypeDef, ValueDef>, ParseError> {
-    parser::parse(
-        tokens,
-        Token::NewLine,
-        Token::ImportKeyword,
-        parse_import,
-        vec![Token::DocKeyword, Token::TestKeyword, Token::ExportKeyword],
-        vec![
-            Parser(Token::TypeKeyword, parse_type_def),
-            //Parser(Token::TraitKeyword, parse_trait_def),
-            Parser(Token::LetKeyword, parse_value_def),
-        ],
-        |token, message, priority| ParseError {
-            line_no: token.line_no,
-            word_no: token.word_no,
-            token: token.token,
-            why: message,
-            priority,
+fn match_item_parser() -> impl Parser<MatchItem> {
+    recursive(
+        new_parser("match_name")
+            .value_name()
+            .map(|(_, name)| MatchItem::Name(name))
+            .or(value_parser().map(MatchItem::Value)),
+        |this| {
+            this()
+                .repeat()
+                .in_brackets(ARRAY_OPEN, ARRAY_CLOSE)
+                .map(MatchItem::Array)
+                .or(new_parser("match_tuple")
+                    .value_name()
+                    .optional()
+                    .and(this())
+                    .repeat()
+                    .in_brackets(TUPLE_OPEN, TUPLE_CLOSE)
+                    .map(|items| {
+                        MatchItem::Tuple(
+                            items
+                                .into_iter()
+                                .map(|(a, b)| (a.map(|(_, w)| w), b))
+                                .collect(),
+                        )
+                    }))
+                .or(new_parser("match_label")
+                    .type_name()
+                    .and(this())
+                    .map(|((_, name), item)| MatchItem::Label(name, Box::new(item))))
         },
     )
 }
 
-fn parse_import(
-    token: PositionedToken<Token>,
-    mut tokens: VecDeque<PositionedToken<Token>>,
-) -> Result<Import, ParseError> {
-    let Token::ImportKeyword = token.token else {
-        return Err(parse_error(token, "Expected import keyword", 0));
-    };
-    let Some(token) = tokens.pop_front() else {
-        return Err(parse_error(
-            token,
-            "Expected type name after import keyword",
-            0,
-        ));
-    };
-    let Token::Type(ref name) = token.token else {
-        return Err(parse_error(
-            token,
-            "Expected type name after import keyword",
-            0,
-        ));
-    };
-    let Some(token) = tokens.pop_front() else {
-        return Err(parse_error(token, "Expected file path after type name", 0));
-    };
-    let Token::String(path) = token.token else {
-        return Err(parse_error(token, "Expected file path after type name", 0));
-    };
-    if let Some(end) = tokens.pop_front() {
-        let Token::NewLine = end.token else {
-            return Err(parse_error(
-                end,
-                "Expected newline after import statement",
-                0,
-            ));
-        };
-    }
-    Ok(Import {
-        name: name.clone(),
-        from: path,
-    })
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Type {}
+
+fn type_parser() -> impl Parser<Type> {
+    todo()
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Value {}
+
+fn value_parser() -> impl Parser<Value> {
+    todo()
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Block {}
+
+fn block_parser() -> impl Parser<Block> {
+    todo()
 }

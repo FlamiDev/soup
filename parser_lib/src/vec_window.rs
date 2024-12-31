@@ -10,6 +10,15 @@ impl<T> VecWindow<'_, T> {
     pub fn is_empty(&self) -> bool {
         self.start_index > self.end_index
     }
+    pub fn size(&self) -> usize {
+        self.end_index - self.start_index + 1
+    }
+    pub fn start(&self) -> usize {
+        self.start_index
+    }
+    pub fn end(&self) -> usize {
+        self.end_index
+    }
     pub fn first(&self) -> Option<&T> {
         if self.start_index > self.end_index {
             None
@@ -31,7 +40,7 @@ impl<T> VecWindow<'_, T> {
             self.vec.get(index + self.start_index)
         }
     }
-    pub fn pop_front(&mut self) -> Option<&T> {
+    pub fn pop_first(&mut self) -> Option<&T> {
         if self.start_index <= self.end_index {
             let res = self.vec.get(self.start_index);
             self.start_index += 1;
@@ -40,13 +49,23 @@ impl<T> VecWindow<'_, T> {
             None
         }
     }
-    pub fn pop_back(&mut self) -> Option<&T> {
+    pub fn pop_last(&mut self) -> Option<&T> {
         if self.start_index <= self.end_index {
             let res = self.vec.get(self.end_index);
             self.end_index -= 1;
             res
         } else {
             None
+        }
+    }
+    pub fn shrink_start_to(&mut self, new_start: usize) {
+        if new_start > self.start_index && new_start <= self.end_index {
+            self.start_index = new_start;
+        }
+    }
+    pub fn shrink_end_to(&mut self, new_end: usize) {
+        if new_end < self.end_index && new_end >= self.start_index {
+            self.end_index = new_end;
         }
     }
 }

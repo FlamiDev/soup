@@ -58,6 +58,13 @@ impl<T> VecWindow<'_, T> {
             None
         }
     }
+    pub fn skip(&self, n: usize) -> Self {
+        VecWindow {
+            vec: self.vec,
+            start_index: self.start_index + n,
+            end_index: self.end_index,
+        }
+    }
     pub fn shrink_start_to(&mut self, new_start: usize) {
         if new_start > self.start_index && new_start <= self.end_index {
             self.start_index = new_start;
@@ -67,6 +74,61 @@ impl<T> VecWindow<'_, T> {
         if new_end < self.end_index && new_end >= self.start_index {
             self.end_index = new_end;
         }
+    }
+    pub fn find<F: Fn(&T) -> bool>(&self, f: F) -> Option<usize> {
+        for i in self.start_index..=self.end_index {
+            if f(&self.vec[i]) {
+                return Some(i - self.start_index);
+            }
+        }
+        None
+    }
+    pub fn snip(self, at: usize) -> Option<(Self, Self)> {
+        if at == 0 {
+            return Some((
+                Self {
+                    vec: self.vec,
+                    start_index: self.start_index,
+                    end_index: self.start_index - 1,
+                },
+                self,
+            ));
+        }
+        if at <= self.end_index - self.start_index {
+            return Some((
+                VecWindow {
+                    vec: self.vec,
+                    start_index: self.start_index,
+                    end_index: self.start_index + at - 1,
+                },
+                VecWindow {
+                    vec: self.vec,
+                    start_index: self.start_index + at,
+                    end_index: self.end_index,
+                },
+            ));
+        }
+        None
+    }
+    pub fn split<F: Fn(&T) -> bool>(&self, on: F) -> Vec<Self> {
+        let mut res = Vec::new();
+        let mut start = self.start_index;
+        for i in self.start_index..=self.end_index {
+            if on(&self.vec[i]) {
+                res.push(VecWindow {
+                    vec: self.vec,
+                    start_index: start,
+                    end_index: i - 1,
+                });
+                start = i + 1;
+            }
+        }
+        res.push(VecWindow {
+            vec: self.vec,
+            start_index: start,
+            end_index: self.end_index,
+        });
+        res
     }
 }
 

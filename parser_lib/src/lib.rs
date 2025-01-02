@@ -36,27 +36,50 @@ pub struct ParseError {
     got: Option<Word>,
 }
 
+#[derive(Debug)]
+pub struct ParseResult<'w, Out>(usize, Option<(VecWindow<'w, Word>, Out)>, Vec<ParseError>);
+
+impl<'w, Out> ParseResult<'w, Out> {
+    fn map<Out2, F: FnOnce(VecWindow<'w, Word>, Out) -> ParseResult<'w, Out2>>(
+        self,
+        f: F,
+    ) -> ParseResult<'w, Out2> {
+        let ParseResult(index, out, errs) = self;
+        match out {
+            Some((words, out)) => {
+                let ParseResult(index2, out, errs2) = f(words, out);
+                ParseResult(index + index2, out, [errs, errs2].concat())
+            }
+            None => ParseResult(index, None, errs),
+        }
+    }
+}
+
+fn ok<'l, Out>(words: VecWindow<'l, Word>, index: usize, out: Out) -> ParseResult<'l, Out> {
+    ParseResult(index, Some((words, out)), Vec::new())
+}
+
 fn err<'l, Out>(index: usize, expected: TokenType, got: Word) -> ParseResult<'l, Out> {
-    Err((
+    ParseResult(
         index,
+        None,
         vec![ParseError {
             expected,
             got: Some(got),
         }],
-    ))
+    )
 }
 
 fn err_end<'l, Out>(index: usize, expected: TokenType) -> ParseResult<'l, Out> {
-    Err((
+    ParseResult(
         index,
+        None,
         vec![ParseError {
             expected,
             got: None,
         }],
-    ))
+    )
 }
-
-pub type ParseResult<'w, Out> = Result<(VecWindow<'w, Word>, usize, Out), (usize, Vec<ParseError>)>;
 
 pub trait DynSafeParser<Out> {
     fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, Out>;
@@ -131,9 +154,17 @@ pub trait Parser<Out>: DynSafeParser<Out> + Sized {
             out: PhantomData,
         }
     }
-    fn repeat(self) -> RepeatParser<Out, Self> {
-        RepeatParser {
+    fn separated(self, sep: Keyword) -> SeparatedParser<Out, Self> {
+        SeparatedParser {
             prev: self,
+            sep,
+            out: PhantomData,
+        }
+    }
+    fn split_start(self, split_on: Vec<Keyword>) -> SplitStartParser<Out, Self> {
+        SplitStartParser {
+            part: self,
+            split_on,
             out: PhantomData,
         }
     }
@@ -154,7 +185,7 @@ pub struct NewParser {
 
 impl DynSafeParser<()> for NewParser {
     fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, ()> {
-        Ok((words, 0, ()))
+        ok(words, 0, ())
     }
 }
 
@@ -171,15 +202,16 @@ pub struct KeywordParser<Out, Prev: Parser<Out>> {
 
 impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<Out> for KeywordParser<Out, Prev> {
     fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, Out> {
-        let (mut words, index, prev) = self.prev.parse(words)?;
-        let Some(word) = words.pop_first().cloned() else {
-            return err_end(index + 1, TokenType::Keyword(self.keyword.clone()));
-        };
-        if word.text == self.keyword.0 {
-            Ok((words, index + 1, prev))
-        } else {
-            err(index + 1, TokenType::Keyword(self.keyword.clone()), word)
-        }
+        self.prev.parse(words).map(|mut words, prev| {
+            let Some(word) = words.pop_first().cloned() else {
+                return err_end(1, TokenType::Keyword(self.keyword.clone()));
+            };
+            if word.text == self.keyword.0 {
+                ok(words, 1, prev)
+            } else {
+                err(1, TokenType::Keyword(self.keyword.clone()), word)
+            }
+        })
     }
 }
 
@@ -191,17 +223,18 @@ pub struct TypeParser<Out, Prev: Parser<Out>> {
 
 impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<(Out, Word)> for TypeParser<Out, Prev> {
     fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, (Out, Word)> {
-        let (mut words, index, prev) = self.prev.parse(words)?;
-        let Some(word) = words.pop_first().cloned() else {
-            return err_end(index + 1, TokenType::TypeName);
-        };
-        if word.text.starts_with(|c: char| c.is_uppercase())
-            && word.text.chars().all(|c| c.is_alphabetic())
-        {
-            Ok((words, index + 1, (prev, word)))
-        } else {
-            err(index + 1, TokenType::TypeName, word)
-        }
+        self.prev.parse(words).map(|mut words, prev| {
+            let Some(word) = words.pop_first().cloned() else {
+                return err_end(1, TokenType::TypeName);
+            };
+            if word.text.starts_with(|c: char| c.is_uppercase())
+                && word.text.chars().all(|c| c.is_alphabetic())
+            {
+                ok(words, 1, (prev, word))
+            } else {
+                err(1, TokenType::TypeName, word)
+            }
+        })
     }
 }
 
@@ -213,15 +246,16 @@ pub struct ValueParser<Out, Prev: Parser<Out>> {
 
 impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<(Out, Word)> for ValueParser<Out, Prev> {
     fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, (Out, Word)> {
-        let (mut words, index, prev) = self.prev.parse(words)?;
-        let Some(word) = words.pop_first().cloned() else {
-            return err_end(index + 1, TokenType::ValueName);
-        };
-        if word.text.chars().all(|c| c.is_lowercase() || c == '_') {
-            Ok((words, index + 1, (prev, word)))
-        } else {
-            err(index + 1, TokenType::ValueName, word)
-        }
+        self.prev.parse(words).map(|mut words, prev| {
+            let Some(word) = words.pop_first().cloned() else {
+                return err_end(1, TokenType::ValueName);
+            };
+            if word.text.chars().all(|c| c.is_lowercase() || c == '_') {
+                ok(words, 1, (prev, word))
+            } else {
+                err(1, TokenType::ValueName, word)
+            }
+        })
     }
 }
 
@@ -240,19 +274,20 @@ pub struct IntResult {
 
 impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<(Out, IntResult)> for IntParser<Out, Prev> {
     fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, (Out, IntResult)> {
-        let (mut words, index, prev) = self.prev.parse(words)?;
-        let Some(word) = words.pop_first().cloned() else {
-            return err_end(index + 1, TokenType::Int);
-        };
-        let Ok(int) = word.text.parse::<i64>() else {
-            return err(index + 1, TokenType::Int, word);
-        };
-        let int = IntResult {
-            value: int,
-            line_number: word.line_number,
-            column_number: word.column_number,
-        };
-        Ok((words, index + 1, (prev, int)))
+        self.prev.parse(words).map(|mut words, prev| {
+            let Some(word) = words.pop_first().cloned() else {
+                return err_end(1, TokenType::Int);
+            };
+            let Ok(int) = word.text.parse::<i64>() else {
+                return err(1, TokenType::Int, word);
+            };
+            let int = IntResult {
+                value: int,
+                line_number: word.line_number,
+                column_number: word.column_number,
+            };
+            ok(words, 1, (prev, int))
+        })
     }
 }
 
@@ -271,19 +306,20 @@ pub struct FloatResult {
 
 impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<(Out, FloatResult)> for FloatParser<Out, Prev> {
     fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, (Out, FloatResult)> {
-        let (mut words, index, prev) = self.prev.parse(words)?;
-        let Some(word) = words.pop_first().cloned() else {
-            return err_end(index + 1, TokenType::Float);
-        };
-        let Ok(float) = word.text.parse::<f64>() else {
-            return err(index + 1, TokenType::Float, word);
-        };
-        let float = FloatResult {
-            value: float,
-            line_number: word.line_number,
-            column_number: word.column_number,
-        };
-        Ok((words, index + 1, (prev, float)))
+        self.prev.parse(words).map(|mut words, prev| {
+            let Some(word) = words.pop_first().cloned() else {
+                return err_end(1, TokenType::Float);
+            };
+            let Ok(float) = word.text.parse::<f64>() else {
+                return err(1, TokenType::Float, word);
+            };
+            let float = FloatResult {
+                value: float,
+                line_number: word.line_number,
+                column_number: word.column_number,
+            };
+            ok(words, 1, (prev, float))
+        })
     }
 }
 
@@ -302,20 +338,21 @@ pub struct StringResult {
 
 impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<(Out, StringResult)> for StringParser<Out, Prev> {
     fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, (Out, StringResult)> {
-        let (mut words, index, prev) = self.prev.parse(words)?;
-        let Some(word) = words.pop_first().cloned() else {
-            return err_end(index + 1, TokenType::String);
-        };
-        if word.text.starts_with('"') && word.text.ends_with('"') {
-            let string = StringResult {
-                value: word.text[1..word.text.len() - 1].to_string(),
-                line_number: word.line_number,
-                column_number: word.column_number,
+        self.prev.parse(words).map(|mut words, prev| {
+            let Some(word) = words.pop_first().cloned() else {
+                return err_end(1, TokenType::String);
             };
-            Ok((words, index + 1, (prev, string)))
-        } else {
-            err(index + 1, TokenType::String, word)
-        }
+            if word.text.starts_with('"') && word.text.ends_with('"') {
+                let string = StringResult {
+                    value: word.text[1..word.text.len() - 1].to_string(),
+                    line_number: word.line_number,
+                    column_number: word.column_number,
+                };
+                ok(words, 1, (prev, string))
+            } else {
+                err(1, TokenType::String, word)
+            }
+        })
     }
 }
 
@@ -352,11 +389,12 @@ impl<Out: Debug, Inner: Parser<Out>> DynSafeParser<Out> for BracketParser<Out, I
             }
         }
         inner_words.shrink_end_to(words.start() - 2); // start is now after the closing bracket
-        let (remaining_words, index, inner) = self.inner.parse(inner_words)?;
-        if let Some(word) = remaining_words.first().cloned() {
-            return err(index + 1, TokenType::Bracket(self.close.clone()), word);
-        }
-        Ok((words, index + 1, inner))
+        self.inner.parse(inner_words).map(|remaining_words, inner| {
+            if let Some(word) = remaining_words.first().cloned() {
+                return err(1, TokenType::Bracket(self.close.clone()), word);
+            }
+            ok(words, 1, inner)
+        })
     }
 }
 
@@ -369,9 +407,10 @@ pub struct ParserMapper<AST, Out, Prev: Parser<Out>> {
 
 impl<AST: Debug, O: Debug, Prev: Parser<O>> DynSafeParser<AST> for ParserMapper<AST, O, Prev> {
     fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, AST> {
-        let (words, index, prev) = self.prev.parse(words)?;
-        let res = (self.map)(prev);
-        Ok((words, index + 1, res))
+        self.prev.parse(words).map(|words, prev| {
+            let res = (self.map)(prev);
+            ok(words, 1, res)
+        })
     }
 }
 
@@ -386,14 +425,18 @@ impl<Out: Debug, Prev1: Parser<Out>, Prev2: Parser<Out>> DynSafeParser<Out>
     for OrParser<Out, Prev1, Prev2>
 {
     fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, Out> {
-        match self.prev1.parse(words.clone()) {
-            Ok(res) => Ok(res),
-            Err((index, errs)) if index <= 1 => match self.prev2.parse(words) {
-                Ok(res) => Ok(res),
-                Err((index, errs2)) if index <= 1 => Err((index, [errs, errs2].concat())),
-                Err((index, errs)) => Err((index, errs)),
-            },
-            Err((index, errs)) => Err((index, errs)),
+        let ParseResult(index1, out1, errs1) = self.prev1.parse(words.clone());
+        match out1 {
+            Some((words, out1)) => ok(words, index1, out1),
+            None if index1 <= 1 => {
+                let ParseResult(index2, out2, errs2) = self.prev2.parse(words);
+                match out2 {
+                    Some((words, out2)) => ok(words, index2, out2),
+                    None if index2 <= 1 => ParseResult(index2, None, [errs1, errs2].concat()),
+                    None => ParseResult(index2, None, errs2),
+                }
+            }
+            None => ParseResult(index1, None, errs1),
         }
     }
 }
@@ -409,39 +452,80 @@ impl<Out1: Debug, Out2: Debug, Prev1: Parser<Out1>, Prev2: Parser<Out2>> DynSafe
     for AndParser<Out1, Out2, Prev1, Prev2>
 {
     fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, (Out1, Out2)> {
-        let (words, index1, prev1) = self.prev1.parse(words)?;
-        let (words, index2, prev2) = self.prev2.parse(words)?;
-        Ok((words, index1 + index2, (prev1, prev2)))
+        self.prev1.parse(words).map(|words, prev1| {
+            self.prev2
+                .parse(words)
+                .map(|words, prev2| ok(words, 1, (prev1, prev2)))
+        })
     }
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct RepeatParser<Out, Prev: Parser<Out>> {
+pub struct SeparatedParser<Out, Prev: Parser<Out>> {
     prev: Prev,
+    sep: Keyword,
     out: PhantomData<Out>,
 }
 
-impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<Vec<Out>> for RepeatParser<Out, Prev> {
+impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<Vec<Out>> for SeparatedParser<Out, Prev> {
     fn parse<'w>(&self, mut words: VecWindow<'w, Word>) -> ParseResult<'w, Vec<Out>> {
-        let initial_length = words.size();
+        let parts = words.split(|word| word.text == self.sep.0);
+        let mut last_index = 0;
         let mut res = Vec::new();
-        let mut index = 0;
-        loop {
-            match self.prev.parse(words.clone()) {
-                Ok((new_words, i, out)) => {
-                    res.push(out);
-                    index += i;
-                    words = new_words;
-                }
-                Err((i, errs)) => {
-                    if i <= 1 && words.size() != initial_length {
-                        break;
-                    }
-                    return Err((index + i, errs));
-                }
-            }
+        let mut errs = Vec::new();
+        for part in parts {
+            let ParseResult(index, out, errs2) = self.prev.parse(part);
+            last_index = index;
+            if let Some(out) = out {
+                res.push(out.1);
+            };
+            errs.extend(errs2);
         }
-        Ok((words, index, res))
+        if last_index == 0 {
+            err_end(0, TokenType::ValueName)
+        } else {
+            words.shrink_start_to(words.end());
+            ParseResult(last_index + 1, Some((words, res)), errs)
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct SplitStartParser<Out, Part: Parser<Out>> {
+    part: Part,
+    split_on: Vec<Keyword>,
+    out: PhantomData<Out>,
+}
+
+impl<Out, Part: Parser<Out>> DynSafeParser<Vec<Out>> for SplitStartParser<Out, Part> {
+    fn parse<'w>(&self, mut words: VecWindow<'w, Word>) -> ParseResult<'w, Vec<Out>> {
+        let mut last_index = 0;
+        let mut res = Vec::new();
+        let mut errs = Vec::new();
+        loop {
+            let Some(found) = words
+                .skip(1)
+                .find(|word| self.split_on.iter().any(|k| k.0 == word.text))
+            else {
+                break;
+            };
+            let Some((current, new_words)) = words.snip(found + 1) else {
+                return err_end(0, TokenType::ValueName);
+            };
+            words = new_words;
+            let ParseResult(index, out, errs2) = self.part.parse(current);
+            last_index = index;
+            if let Some(out) = out {
+                res.push(out.1);
+            };
+            errs.extend(errs2);
+        }
+        if last_index == 0 {
+            err_end(0, TokenType::ValueName)
+        } else {
+            words.shrink_start_to(words.end());
+            ParseResult(last_index + 1, Some((words, res)), errs)
+        }
     }
 }
 
@@ -453,15 +537,11 @@ pub struct OptionalParser<Out, Prev: Parser<Out>> {
 
 impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<Option<Out>> for OptionalParser<Out, Prev> {
     fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, Option<Out>> {
-        match self.prev.parse(words.clone()) {
-            Ok((words, index, out)) => Ok((words, index, Some(out))),
-            Err((index, errs)) => {
-                if index <= 1 {
-                    Ok((words, index, None))
-                } else {
-                    Err((index, errs))
-                }
-            }
+        let ParseResult(index, out, errs) = self.prev.parse(words.clone());
+        match out {
+            Some((words, out)) => ParseResult(index, Some((words, Some(out))), errs),
+            None if index <= 1 => ok(words, 0, None),
+            None => ParseResult(index, None, errs),
         }
     }
 }
@@ -511,28 +591,26 @@ impl<Out: Debug, Base: Parser<Out>, Recursive: Parser<Out>> DynSafeParser<Out>
     for RecursiveParserInner<Out, Base, Recursive>
 {
     fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, Out> {
-        match self.base.parse(words.clone()) {
-            Ok(res) => Ok(res),
-            Err((index, errs)) => {
-                if index <= 1 {
-                    self.recursive.parse(words)
-                } else {
-                    Err((index, errs))
-                }
-            }
+        let ParseResult(index, out, errs) = self.base.parse(words.clone());
+        match out {
+            Some(out) => ParseResult(index, Some(out), errs),
+            None if index <= 1 => self.recursive.parse(words),
+            None => ParseResult(index, None, errs),
         }
     }
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct TodoParser {}
+pub struct TodoParser {
+    message: &'static str,
+}
 
-pub fn todo() -> TodoParser {
-    TodoParser {}
+pub fn todo(message: &'static str) -> TodoParser {
+    TodoParser { message }
 }
 
 impl<Out: Debug> DynSafeParser<Out> for TodoParser {
     fn parse<'w>(&self, _words: VecWindow<'w, Word>) -> ParseResult<'w, Out> {
-        todo!()
+        todo!("Unfinished parser branch: {}", self.message)
     }
 }

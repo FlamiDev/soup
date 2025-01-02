@@ -37,6 +37,7 @@ const TUPLE_CLOSE: Keyword = Keyword("}");
 const SCOPE_OPEN: Keyword = Keyword("(");
 const SCOPE_CLOSE: Keyword = Keyword(")");
 const EQUALS: Keyword = Keyword("=");
+const COMMA: Keyword = Keyword(",");
 
 pub fn parser() -> impl Parser<Vec<AST>> {
     new_parser("ast_import")
@@ -71,7 +72,13 @@ pub fn parser() -> impl Parser<Vec<AST>> {
             .keyword(EQUALS)
             .and(match_item_parser())
             .map(|(((_, to), type_), from)| AST::Let { to, type_, from }))
-        .repeat()
+        .split_start(vec![
+            IMPORT_KEYWORD,
+            TYPE_KEYWORD,
+            DOC_COMMENT_KEYWORD,
+            TEST_BLOCK_KEYWORD,
+            LET_KEYWORD,
+        ])
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -91,14 +98,14 @@ fn match_item_parser() -> impl Parser<MatchItem> {
             .or(value_parser().map(MatchItem::Value)),
         |this| {
             this()
-                .repeat()
+                .separated(COMMA)
                 .in_brackets(ARRAY_OPEN, ARRAY_CLOSE)
                 .map(MatchItem::Array)
                 .or(new_parser("match_tuple")
                     .value_name()
                     .optional()
                     .and(this())
-                    .repeat()
+                    .separated(COMMA)
                     .in_brackets(TUPLE_OPEN, TUPLE_CLOSE)
                     .map(|items| {
                         MatchItem::Tuple(
@@ -120,19 +127,19 @@ fn match_item_parser() -> impl Parser<MatchItem> {
 pub enum Type {}
 
 fn type_parser() -> impl Parser<Type> {
-    todo()
+    todo("Type")
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Value {}
 
 fn value_parser() -> impl Parser<Value> {
-    todo()
+    todo("Value")
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Block {}
 
 fn block_parser() -> impl Parser<Block> {
-    todo()
+    todo("Block")
 }

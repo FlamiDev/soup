@@ -21,6 +21,7 @@ pub fn split_words(text: &str, bracket_chars: &'static str) -> Vec<Word> {
                     continue;
                 }
                 current_word.text.push(character);
+                continue;
             }
             if character.is_whitespace() {
                 if !current_word.text.is_empty() {

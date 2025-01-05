@@ -1,5 +1,19 @@
 use parser_lib::{new_parser, recursive, todo, Keyword, Parser, StringResult, Word};
 
+const IMPORT_KEYWORD: Keyword = Keyword("import");
+const TYPE_KEYWORD: Keyword = Keyword("type");
+const DOC_COMMENT_KEYWORD: Keyword = Keyword("doc");
+const TEST_BLOCK_KEYWORD: Keyword = Keyword("test");
+const LET_KEYWORD: Keyword = Keyword("let");
+const ARRAY_OPEN: Keyword = Keyword("[");
+const ARRAY_CLOSE: Keyword = Keyword("]");
+const TUPLE_OPEN: Keyword = Keyword("{");
+const TUPLE_CLOSE: Keyword = Keyword("}");
+const SCOPE_OPEN: Keyword = Keyword("(");
+const SCOPE_CLOSE: Keyword = Keyword(")");
+const EQUALS: Keyword = Keyword("=");
+const COMMA: Keyword = Keyword(",");
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum AST {
@@ -24,20 +38,6 @@ pub enum AST {
         from: MatchItem,
     },
 }
-
-const IMPORT_KEYWORD: Keyword = Keyword("import");
-const TYPE_KEYWORD: Keyword = Keyword("type");
-const DOC_COMMENT_KEYWORD: Keyword = Keyword("doc");
-const TEST_BLOCK_KEYWORD: Keyword = Keyword("test");
-const LET_KEYWORD: Keyword = Keyword("let");
-const ARRAY_OPEN: Keyword = Keyword("[");
-const ARRAY_CLOSE: Keyword = Keyword("]");
-const TUPLE_OPEN: Keyword = Keyword("{");
-const TUPLE_CLOSE: Keyword = Keyword("}");
-const SCOPE_OPEN: Keyword = Keyword("(");
-const SCOPE_CLOSE: Keyword = Keyword(")");
-const EQUALS: Keyword = Keyword("=");
-const COMMA: Keyword = Keyword(",");
 
 pub fn parser() -> impl Parser<Vec<AST>> {
     new_parser("ast_import")

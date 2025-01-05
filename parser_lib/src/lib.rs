@@ -2,10 +2,11 @@ mod split_words;
 mod vec_window;
 
 pub use split_words::split_words;
+use std::any::type_name;
 use std::cell::OnceCell;
 pub use vec_window::VecWindow;
 
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::rc::Rc;
 
@@ -55,7 +56,7 @@ impl<'w, Out> ParseResult<'w, Out> {
     }
 }
 
-fn ok<'l, Out>(words: VecWindow<'l, Word>, index: usize, out: Out) -> ParseResult<'l, Out> {
+fn ok<Out>(words: VecWindow<Word>, index: usize, out: Out) -> ParseResult<Out> {
     ParseResult(index, Some((words, out)), Vec::new())
 }
 
@@ -81,8 +82,69 @@ fn err_end<'l, Out>(index: usize, expected: TokenType) -> ParseResult<'l, Out> {
     )
 }
 
+pub enum ParserDebugString {
+    Just(String),
+    Sequence(Vec<ParserDebugString>),
+    Nested(String, Vec<ParserDebugString>),
+}
+
+impl Display for ParserDebugString {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParserDebugString::Just(s) => write!(f, "{}", s),
+            ParserDebugString::Sequence(seq) => {
+                for (i, string) in seq.iter().enumerate() {
+                    if i < seq.len() - 1 {
+                        writeln!(f, "{}", string)?;
+                    } else {
+                        write!(f, "{}", string)?;
+                    }
+                }
+                write!(f, "")
+            }
+            ParserDebugString::Nested(name, seq) => {
+                writeln!(f, "{}", name)?;
+                for (i, string) in seq.iter().enumerate() {
+                    let mut lines = string
+                        .to_string()
+                        .lines()
+                        .map(|l| format!("    {}", l))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    lines.remove(0);
+                    if i < seq.len() - 1 {
+                        writeln!(f, "-{}", lines)?;
+                    } else {
+                        write!(f, "-{}", lines)?;
+                    }
+                }
+                write!(f, "")
+            }
+        }
+    }
+}
+
+impl ParserDebugString {
+    fn and(self, cur: ParserDebugString) -> ParserDebugString {
+        match self {
+            ParserDebugString::Sequence(mut prev) => {
+                prev.push(cur);
+                ParserDebugString::Sequence(prev)
+            }
+            _ => ParserDebugString::Sequence(vec![self, cur]),
+        }
+    }
+    fn nest(self, name: String) -> ParserDebugString {
+        match self {
+            ParserDebugString::Sequence(seq) => ParserDebugString::Nested(name, seq),
+            a => ParserDebugString::Nested(name, vec![a]),
+        }
+    }
+}
+
 pub trait DynSafeParser<Out> {
     fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, Out>;
+    fn debug(&self, recursing: bool) -> ParserDebugString;
 }
 
 pub trait Parser<Out>: DynSafeParser<Out> + Sized {
@@ -187,6 +249,9 @@ impl DynSafeParser<()> for NewParser {
     fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, ()> {
         ok(words, 0, ())
     }
+    fn debug(&self, _recursing: bool) -> ParserDebugString {
+        ParserDebugString::Just(format!("[[{}]]", self.name))
+    }
 }
 
 pub fn new_parser(name: &'static str) -> NewParser {
@@ -213,6 +278,11 @@ impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<Out> for KeywordParser<Out, Pr
             }
         })
     }
+    fn debug(&self, recursing: bool) -> ParserDebugString {
+        self.prev
+            .debug(recursing)
+            .and(ParserDebugString::Just(format!("'{}'", self.keyword.0)))
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -236,6 +306,11 @@ impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<(Out, Word)> for TypeParser<Ou
             }
         })
     }
+    fn debug(&self, recursing: bool) -> ParserDebugString {
+        self.prev
+            .debug(recursing)
+            .and(ParserDebugString::Just("<TypeName>".to_string()))
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -256,6 +331,11 @@ impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<(Out, Word)> for ValueParser<O
                 err(1, TokenType::ValueName, word)
             }
         })
+    }
+    fn debug(&self, recursing: bool) -> ParserDebugString {
+        self.prev
+            .debug(recursing)
+            .and(ParserDebugString::Just("<value_name>".to_string()))
     }
 }
 
@@ -289,6 +369,11 @@ impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<(Out, IntResult)> for IntParse
             ok(words, 1, (prev, int))
         })
     }
+    fn debug(&self, recursing: bool) -> ParserDebugString {
+        self.prev
+            .debug(recursing)
+            .and(ParserDebugString::Just("<int>".to_string()))
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -320,6 +405,11 @@ impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<(Out, FloatResult)> for FloatP
             };
             ok(words, 1, (prev, float))
         })
+    }
+    fn debug(&self, recursing: bool) -> ParserDebugString {
+        self.prev
+            .debug(recursing)
+            .and(ParserDebugString::Just("<float>".to_string()))
     }
 }
 
@@ -353,6 +443,11 @@ impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<(Out, StringResult)> for Strin
                 err(1, TokenType::String, word)
             }
         })
+    }
+    fn debug(&self, recursing: bool) -> ParserDebugString {
+        self.prev
+            .debug(recursing)
+            .and(ParserDebugString::Just("<string>".to_string()))
     }
 }
 
@@ -396,6 +491,11 @@ impl<Out: Debug, Inner: Parser<Out>> DynSafeParser<Out> for BracketParser<Out, I
             ok(words, 1, inner)
         })
     }
+    fn debug(&self, recursing: bool) -> ParserDebugString {
+        self.inner
+            .debug(recursing)
+            .nest(format!("'{}..{}'", self.open.0, self.close.0))
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -411,6 +511,12 @@ impl<AST: Debug, O: Debug, Prev: Parser<O>> DynSafeParser<AST> for ParserMapper<
             let res = (self.map)(prev);
             ok(words, 1, res)
         })
+    }
+    fn debug(&self, recursing: bool) -> ParserDebugString {
+        let ast_type_name = type_name::<AST>();
+        self.prev
+            .debug(recursing)
+            .and(ParserDebugString::Just(format!("Map {}", ast_type_name)))
     }
 }
 
@@ -439,6 +545,23 @@ impl<Out: Debug, Prev1: Parser<Out>, Prev2: Parser<Out>> DynSafeParser<Out>
             None => ParseResult(index1, None, errs1),
         }
     }
+    fn debug(&self, recursing: bool) -> ParserDebugString {
+        let name = "Or".to_string();
+        let previous = match (self.prev1.debug(recursing), self.prev2.debug(recursing)) {
+            (ParserDebugString::Nested(n, mut seq), ParserDebugString::Nested(n2, seq2))
+                if n == name && n == n2 =>
+            {
+                seq.extend(seq2);
+                seq
+            }
+            (ParserDebugString::Nested(n, mut seq), b) if n == name => {
+                seq.push(b);
+                seq
+            }
+            (a, b) => vec![a, b],
+        };
+        ParserDebugString::Nested(name, previous)
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -457,6 +580,9 @@ impl<Out1: Debug, Out2: Debug, Prev1: Parser<Out1>, Prev2: Parser<Out2>> DynSafe
                 .parse(words)
                 .map(|words, prev2| ok(words, 1, (prev1, prev2)))
         })
+    }
+    fn debug(&self, recursing: bool) -> ParserDebugString {
+        self.prev1.debug(recursing).and(self.prev2.debug(recursing))
     }
 }
 
@@ -487,6 +613,11 @@ impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<Vec<Out>> for SeparatedParser<
             words.shrink_start_to(words.end());
             ParseResult(last_index + 1, Some((words, res)), errs)
         }
+    }
+    fn debug(&self, recursing: bool) -> ParserDebugString {
+        self.prev
+            .debug(recursing)
+            .nest(format!("Separated by '{}'", self.sep.0))
     }
 }
 
@@ -527,6 +658,16 @@ impl<Out, Part: Parser<Out>> DynSafeParser<Vec<Out>> for SplitStartParser<Out, P
             ParseResult(last_index + 1, Some((words, res)), errs)
         }
     }
+    fn debug(&self, recursing: bool) -> ParserDebugString {
+        self.part.debug(recursing).nest(format!(
+            "Split starting with: {}",
+            self.split_on
+                .iter()
+                .map(|k| k.0)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -543,6 +684,9 @@ impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<Option<Out>> for OptionalParse
             None if index <= 1 => ok(words, 0, None),
             None => ParseResult(index, None, errs),
         }
+    }
+    fn debug(&self, recursing: bool) -> ParserDebugString {
+        self.prev.debug(recursing).nest("Optionally".to_string())
     }
 }
 
@@ -585,6 +729,12 @@ impl<Out> DynSafeParser<Out> for RecursiveParser<Out> {
     fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, Out> {
         self.0.get().unwrap().parse(words)
     }
+    fn debug(&self, recursing: bool) -> ParserDebugString {
+        if recursing {
+            return ParserDebugString::Just("{{recurse}}".to_string());
+        }
+        self.0.get().unwrap().debug(true)
+    }
 }
 
 impl<Out: Debug, Base: Parser<Out>, Recursive: Parser<Out>> DynSafeParser<Out>
@@ -597,6 +747,12 @@ impl<Out: Debug, Base: Parser<Out>, Recursive: Parser<Out>> DynSafeParser<Out>
             None if index <= 1 => self.recursive.parse(words),
             None => ParseResult(index, None, errs),
         }
+    }
+    fn debug(&self, recursing: bool) -> ParserDebugString {
+        ParserDebugString::Nested("Recursive".to_string(), vec![
+            self.base.debug(false),
+            self.recursive.debug(recursing),
+        ])
     }
 }
 
@@ -611,6 +767,9 @@ pub fn todo(message: &'static str) -> TodoParser {
 
 impl<Out: Debug> DynSafeParser<Out> for TodoParser {
     fn parse<'w>(&self, _words: VecWindow<'w, Word>) -> ParseResult<'w, Out> {
-        todo!("Unfinished parser branch: {}", self.message)
+        panic!("TODO unfinished parser branch: {}", self.message)
+    }
+    fn debug(&self, _recursing: bool) -> ParserDebugString {
+        ParserDebugString::Just(format!("TODO: {}", self.message))
     }
 }

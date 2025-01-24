@@ -6,7 +6,7 @@ pub struct VecWindow<'l, T> {
     end_index: usize,
 }
 
-impl<T> VecWindow<'_, T> {
+impl<'l, T> VecWindow<'l, T> {
     pub fn is_empty(&self) -> bool {
         self.start_index > self.end_index
     }
@@ -40,7 +40,7 @@ impl<T> VecWindow<'_, T> {
             self.vec.get(index + self.start_index)
         }
     }
-    pub fn pop_first(&mut self) -> Option<&T> {
+    pub fn pop_first(&mut self) -> Option<&'l T> {
         if self.start_index <= self.end_index {
             let res = self.vec.get(self.start_index);
             self.start_index += 1;
@@ -49,7 +49,7 @@ impl<T> VecWindow<'_, T> {
             None
         }
     }
-    pub fn pop_last(&mut self) -> Option<&T> {
+    pub fn pop_last(&mut self) -> Option<&'l T> {
         if self.start_index <= self.end_index {
             let res = self.vec.get(self.end_index);
             self.end_index -= 1;

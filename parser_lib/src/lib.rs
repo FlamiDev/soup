@@ -1,775 +1,174 @@
 mod split_words;
 mod vec_window;
 
-pub use split_words::split_words;
-use std::any::type_name;
-use std::cell::OnceCell;
+pub use parser_lib_macros::Parser;
+pub use split_words::{split_words, Word};
 pub use vec_window::VecWindow;
-
-use std::fmt::{Debug, Display, Formatter};
-use std::marker::PhantomData;
-use std::rc::Rc;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Word {
-    pub text: String,
-    pub line_number: usize,
-    pub column_number: usize,
-}
-
-#[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub struct Keyword(pub &'static str);
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum TokenType {
-    Keyword(Keyword),
-    TypeName,
-    ValueName,
-    Int,
-    Float,
-    String,
-    Bracket(Keyword),
-}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParseError {
-    expected: TokenType,
-    got: Option<Word>,
+    pub expected: String,
+    pub got: Option<Word>,
 }
 
 #[derive(Debug)]
-pub struct ParseResult<'w, Out>(usize, Option<(VecWindow<'w, Word>, Out)>, Vec<ParseError>);
+pub struct ParseResult<'l, Out>(
+    pub Option<Out>,
+    pub VecWindow<'l, Word>,
+    pub Vec<ParseError>,
+    pub usize,
+);
 
-impl<'w, Out> ParseResult<'w, Out> {
-    fn map<Out2, F: FnOnce(VecWindow<'w, Word>, Out) -> ParseResult<'w, Out2>>(
-        self,
-        f: F,
-    ) -> ParseResult<'w, Out2> {
-        let ParseResult(index, out, errs) = self;
-        match out {
-            Some((words, out)) => {
-                let ParseResult(index2, out, errs2) = f(words, out);
-                ParseResult(index + index2, out, [errs, errs2].concat())
-            }
-            None => ParseResult(index, None, errs),
-        }
-    }
+pub trait Parser<Out> {
+    fn parse(words: VecWindow<Word>) -> ParseResult<Out>;
 }
 
-fn ok<Out>(words: VecWindow<Word>, index: usize, out: Out) -> ParseResult<Out> {
-    ParseResult(index, Some((words, out)), Vec::new())
-}
-
-fn err<'l, Out>(index: usize, expected: TokenType, got: Word) -> ParseResult<'l, Out> {
-    ParseResult(
-        index,
-        None,
-        vec![ParseError {
-            expected,
-            got: Some(got),
-        }],
-    )
-}
-
-fn err_end<'l, Out>(index: usize, expected: TokenType) -> ParseResult<'l, Out> {
-    ParseResult(
-        index,
-        None,
-        vec![ParseError {
-            expected,
-            got: None,
-        }],
-    )
-}
-
-pub enum ParserDebugString {
-    Just(String),
-    Sequence(Vec<ParserDebugString>),
-    Nested(String, Vec<ParserDebugString>),
-}
-
-impl Display for ParserDebugString {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ParserDebugString::Just(s) => write!(f, "{}", s),
-            ParserDebugString::Sequence(seq) => {
-                for (i, string) in seq.iter().enumerate() {
-                    if i < seq.len() - 1 {
-                        writeln!(f, "{}", string)?;
-                    } else {
-                        write!(f, "{}", string)?;
-                    }
-                }
-                write!(f, "")
-            }
-            ParserDebugString::Nested(name, seq) => {
-                writeln!(f, "{}", name)?;
-                for (i, string) in seq.iter().enumerate() {
-                    let mut lines = string
-                        .to_string()
-                        .lines()
-                        .map(|l| format!("    {}", l))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    lines.remove(0);
-                    if i < seq.len() - 1 {
-                        writeln!(f, "-{}", lines)?;
-                    } else {
-                        write!(f, "-{}", lines)?;
-                    }
-                }
-                write!(f, "")
-            }
-        }
-    }
-}
-
-impl ParserDebugString {
-    fn and(self, cur: ParserDebugString) -> ParserDebugString {
-        match self {
-            ParserDebugString::Sequence(mut prev) => {
-                prev.push(cur);
-                ParserDebugString::Sequence(prev)
-            }
-            _ => ParserDebugString::Sequence(vec![self, cur]),
-        }
-    }
-    fn nest(self, name: String) -> ParserDebugString {
-        match self {
-            ParserDebugString::Sequence(seq) => ParserDebugString::Nested(name, seq),
-            a => ParserDebugString::Nested(name, vec![a]),
-        }
-    }
-}
-
-pub trait DynSafeParser<Out> {
-    fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, Out>;
-    fn debug(&self, recursing: bool) -> ParserDebugString;
-}
-
-pub trait Parser<Out>: DynSafeParser<Out> + Sized {
-    // For the following methods `Out` is the output type of the current parsers
-    // and the methods themselves create parser with a new output type
-    fn keyword(self, keyword: Keyword) -> KeywordParser<Out, Self> {
-        KeywordParser {
-            prev: self,
-            keyword,
-            out: PhantomData,
-        }
-    }
-    fn type_name(self) -> TypeParser<Out, Self> {
-        TypeParser {
-            prev: self,
-            out: PhantomData,
-        }
-    }
-    fn value_name(self) -> ValueParser<Out, Self> {
-        ValueParser {
-            prev: self,
-            out: PhantomData,
-        }
-    }
-    fn int(self) -> IntParser<Out, Self> {
-        IntParser {
-            prev: self,
-            out: PhantomData,
-        }
-    }
-    fn float(self) -> FloatParser<Out, Self> {
-        FloatParser {
-            prev: self,
-            out: PhantomData,
-        }
-    }
-    fn string(self) -> StringParser<Out, Self> {
-        StringParser {
-            prev: self,
-            out: PhantomData,
-        }
-    }
-    fn in_brackets(self, open: Keyword, close: Keyword) -> BracketParser<Out, Self> {
-        BracketParser {
-            inner: self,
-            open,
-            close,
-            out: PhantomData,
-        }
-    }
-    fn map<AST>(self, map: fn(Out) -> AST) -> ParserMapper<AST, Out, Self> {
-        ParserMapper {
-            prev: self,
-            map,
-            out: PhantomData,
-        }
-    }
-    fn or<Prev2: Parser<Out>>(self, prev2: Prev2) -> OrParser<Out, Self, Prev2> {
-        OrParser {
-            prev1: self,
-            prev2,
-            out: PhantomData,
-        }
-    }
-    fn and<Out2, Prev2: Parser<Out2>>(self, prev2: Prev2) -> AndParser<Out, Out2, Self, Prev2> {
-        AndParser {
-            prev1: self,
-            prev2,
-            out: PhantomData,
-        }
-    }
-    fn separated(self, sep: Keyword) -> SeparatedParser<Out, Self> {
-        SeparatedParser {
-            prev: self,
-            sep,
-            out: PhantomData,
-        }
-    }
-    fn split_start(self, split_on: Vec<Keyword>) -> SplitStartParser<Out, Self> {
-        SplitStartParser {
-            part: self,
-            split_on,
-            out: PhantomData,
-        }
-    }
-    fn optional(self) -> OptionalParser<Out, Self> {
-        OptionalParser {
-            prev: self,
-            out: PhantomData,
-        }
-    }
-}
-
-impl<Out: Debug, DSP: DynSafeParser<Out>> Parser<Out> for DSP {}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct NewParser {
-    name: &'static str,
-}
-
-impl DynSafeParser<()> for NewParser {
-    fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, ()> {
-        ok(words, 0, ())
-    }
-    fn debug(&self, _recursing: bool) -> ParserDebugString {
-        ParserDebugString::Just(format!("[[{}]]", self.name))
-    }
-}
-
-pub fn new_parser(name: &'static str) -> NewParser {
-    NewParser { name }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct KeywordParser<Out, Prev: Parser<Out>> {
-    prev: Prev,
-    keyword: Keyword,
-    out: PhantomData<Out>,
-}
-
-impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<Out> for KeywordParser<Out, Prev> {
-    fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, Out> {
-        self.prev.parse(words).map(|mut words, prev| {
-            let Some(word) = words.pop_first().cloned() else {
-                return err_end(1, TokenType::Keyword(self.keyword.clone()));
-            };
-            if word.text == self.keyword.0 {
-                ok(words, 1, prev)
-            } else {
-                err(1, TokenType::Keyword(self.keyword.clone()), word)
-            }
-        })
-    }
-    fn debug(&self, recursing: bool) -> ParserDebugString {
-        self.prev
-            .debug(recursing)
-            .and(ParserDebugString::Just(format!("'{}'", self.keyword.0)))
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct TypeParser<Out, Prev: Parser<Out>> {
-    prev: Prev,
-    out: PhantomData<Out>,
-}
-
-impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<(Out, Word)> for TypeParser<Out, Prev> {
-    fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, (Out, Word)> {
-        self.prev.parse(words).map(|mut words, prev| {
-            let Some(word) = words.pop_first().cloned() else {
-                return err_end(1, TokenType::TypeName);
-            };
-            if word.text.starts_with(|c: char| c.is_uppercase())
-                && word.text.chars().all(|c| c.is_alphabetic())
-            {
-                ok(words, 1, (prev, word))
-            } else {
-                err(1, TokenType::TypeName, word)
-            }
-        })
-    }
-    fn debug(&self, recursing: bool) -> ParserDebugString {
-        self.prev
-            .debug(recursing)
-            .and(ParserDebugString::Just("<TypeName>".to_string()))
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct ValueParser<Out, Prev: Parser<Out>> {
-    prev: Prev,
-    out: PhantomData<Out>,
-}
-
-impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<(Out, Word)> for ValueParser<Out, Prev> {
-    fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, (Out, Word)> {
-        self.prev.parse(words).map(|mut words, prev| {
-            let Some(word) = words.pop_first().cloned() else {
-                return err_end(1, TokenType::ValueName);
-            };
-            if word.text.chars().all(|c| c.is_lowercase() || c == '_') {
-                ok(words, 1, (prev, word))
-            } else {
-                err(1, TokenType::ValueName, word)
-            }
-        })
-    }
-    fn debug(&self, recursing: bool) -> ParserDebugString {
-        self.prev
-            .debug(recursing)
-            .and(ParserDebugString::Just("<value_name>".to_string()))
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct IntParser<Out, Prev: Parser<Out>> {
-    prev: Prev,
-    out: PhantomData<Out>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IntResult {
-    pub value: i64,
-    pub line_number: usize,
-    pub column_number: usize,
-}
-
-impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<(Out, IntResult)> for IntParser<Out, Prev> {
-    fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, (Out, IntResult)> {
-        self.prev.parse(words).map(|mut words, prev| {
-            let Some(word) = words.pop_first().cloned() else {
-                return err_end(1, TokenType::Int);
-            };
-            let Ok(int) = word.text.parse::<i64>() else {
-                return err(1, TokenType::Int, word);
-            };
-            let int = IntResult {
-                value: int,
-                line_number: word.line_number,
-                column_number: word.column_number,
-            };
-            ok(words, 1, (prev, int))
-        })
-    }
-    fn debug(&self, recursing: bool) -> ParserDebugString {
-        self.prev
-            .debug(recursing)
-            .and(ParserDebugString::Just("<int>".to_string()))
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct FloatParser<Out, Prev: Parser<Out>> {
-    prev: Prev,
-    out: PhantomData<Out>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct FloatResult {
-    pub value: f64,
-    pub line_number: usize,
-    pub column_number: usize,
-}
-
-impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<(Out, FloatResult)> for FloatParser<Out, Prev> {
-    fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, (Out, FloatResult)> {
-        self.prev.parse(words).map(|mut words, prev| {
-            let Some(word) = words.pop_first().cloned() else {
-                return err_end(1, TokenType::Float);
-            };
-            let Ok(float) = word.text.parse::<f64>() else {
-                return err(1, TokenType::Float, word);
-            };
-            let float = FloatResult {
-                value: float,
-                line_number: word.line_number,
-                column_number: word.column_number,
-            };
-            ok(words, 1, (prev, float))
-        })
-    }
-    fn debug(&self, recursing: bool) -> ParserDebugString {
-        self.prev
-            .debug(recursing)
-            .and(ParserDebugString::Just("<float>".to_string()))
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct StringParser<Out, Prev: Parser<Out>> {
-    prev: Prev,
-    out: PhantomData<Out>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StringResult {
-    pub value: String,
-    pub line_number: usize,
-    pub column_number: usize,
-}
-
-impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<(Out, StringResult)> for StringParser<Out, Prev> {
-    fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, (Out, StringResult)> {
-        self.prev.parse(words).map(|mut words, prev| {
-            let Some(word) = words.pop_first().cloned() else {
-                return err_end(1, TokenType::String);
-            };
-            if word.text.starts_with('"') && word.text.ends_with('"') {
-                let string = StringResult {
-                    value: word.text[1..word.text.len() - 1].to_string(),
-                    line_number: word.line_number,
-                    column_number: word.column_number,
-                };
-                ok(words, 1, (prev, string))
-            } else {
-                err(1, TokenType::String, word)
-            }
-        })
-    }
-    fn debug(&self, recursing: bool) -> ParserDebugString {
-        self.prev
-            .debug(recursing)
-            .and(ParserDebugString::Just("<string>".to_string()))
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct BracketParser<Out, Inner: Parser<Out>> {
-    inner: Inner,
-    open: Keyword,
-    close: Keyword,
-    out: PhantomData<Out>,
-}
-
-impl<Out: Debug, Inner: Parser<Out>> DynSafeParser<Out> for BracketParser<Out, Inner> {
-    fn parse<'w>(&self, mut words: VecWindow<'w, Word>) -> ParseResult<'w, Out> {
-        let Some(word) = words.pop_first().cloned() else {
-            return err_end(0, TokenType::ValueName);
-        };
-        if word.text != self.open.0 {
-            return err(0, TokenType::Bracket(self.open.clone()), word);
-        }
-        let mut inner_brackets = 0;
-        let mut inner_words = words.clone();
-        loop {
-            let Some(word) = words.pop_first().cloned() else {
-                return err_end(0, TokenType::Bracket(self.close.clone()));
-            };
-            if word.text == self.open.0 {
-                inner_brackets += 1;
-            } else if word.text == self.close.0 {
-                if inner_brackets == 0 {
-                    break;
-                } else {
-                    inner_brackets -= 1;
-                }
-            }
-        }
-        inner_words.shrink_end_to(words.start() - 2); // start is now after the closing bracket
-        self.inner.parse(inner_words).map(|remaining_words, inner| {
-            if let Some(word) = remaining_words.first().cloned() {
-                return err(1, TokenType::Bracket(self.close.clone()), word);
-            }
-            ok(words, 1, inner)
-        })
-    }
-    fn debug(&self, recursing: bool) -> ParserDebugString {
-        self.inner
-            .debug(recursing)
-            .nest(format!("'{}..{}'", self.open.0, self.close.0))
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct ParserMapper<AST, Out, Prev: Parser<Out>> {
-    prev: Prev,
-    map: fn(Out) -> AST,
-    out: PhantomData<Out>,
-}
-
-impl<AST: Debug, O: Debug, Prev: Parser<O>> DynSafeParser<AST> for ParserMapper<AST, O, Prev> {
-    fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, AST> {
-        self.prev.parse(words).map(|words, prev| {
-            let res = (self.map)(prev);
-            ok(words, 1, res)
-        })
-    }
-    fn debug(&self, recursing: bool) -> ParserDebugString {
-        let ast_type_name = type_name::<AST>();
-        self.prev
-            .debug(recursing)
-            .and(ParserDebugString::Just(format!("Map {}", ast_type_name)))
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct OrParser<Out, Prev1: Parser<Out>, Prev2: Parser<Out>> {
-    prev1: Prev1,
-    prev2: Prev2,
-    out: PhantomData<Out>,
-}
-
-impl<Out: Debug, Prev1: Parser<Out>, Prev2: Parser<Out>> DynSafeParser<Out>
-    for OrParser<Out, Prev1, Prev2>
+pub fn parse_to_type<T>(words: VecWindow<Word>) -> ParseResult<T>
+where
+    T: Parser<T>,
 {
-    fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, Out> {
-        let ParseResult(index1, out1, errs1) = self.prev1.parse(words.clone());
-        match out1 {
-            Some((words, out1)) => ok(words, index1, out1),
-            None if index1 <= 1 => {
-                let ParseResult(index2, out2, errs2) = self.prev2.parse(words);
-                match out2 {
-                    Some((words, out2)) => ok(words, index2, out2),
-                    None if index2 <= 1 => ParseResult(index2, None, [errs1, errs2].concat()),
-                    None => ParseResult(index2, None, errs2),
-                }
-            }
-            None => ParseResult(index1, None, errs1),
-        }
-    }
-    fn debug(&self, recursing: bool) -> ParserDebugString {
-        let name = "Or".to_string();
-        let previous = match (self.prev1.debug(recursing), self.prev2.debug(recursing)) {
-            (ParserDebugString::Nested(n, mut seq), ParserDebugString::Nested(n2, seq2))
-                if n == name && n == n2 =>
-            {
-                seq.extend(seq2);
-                seq
-            }
-            (ParserDebugString::Nested(n, mut seq), b) if n == name => {
-                seq.push(b);
-                seq
-            }
-            (a, b) => vec![a, b],
-        };
-        ParserDebugString::Nested(name, previous)
-    }
+    T::parse(words)
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub struct AndParser<Out1, Out2, Prev1: Parser<Out1>, Prev2: Parser<Out2>> {
-    prev1: Prev1,
-    prev2: Prev2,
-    out: PhantomData<(Out1, Out2)>,
-}
-
-impl<Out1: Debug, Out2: Debug, Prev1: Parser<Out1>, Prev2: Parser<Out2>> DynSafeParser<(Out1, Out2)>
-    for AndParser<Out1, Out2, Prev1, Prev2>
-{
-    fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, (Out1, Out2)> {
-        self.prev1.parse(words).map(|words, prev1| {
-            self.prev2
-                .parse(words)
-                .map(|words, prev2| ok(words, 1, (prev1, prev2)))
-        })
-    }
-    fn debug(&self, recursing: bool) -> ParserDebugString {
-        self.prev1.debug(recursing).and(self.prev2.debug(recursing))
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct SeparatedParser<Out, Prev: Parser<Out>> {
-    prev: Prev,
-    sep: Keyword,
-    out: PhantomData<Out>,
-}
-
-impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<Vec<Out>> for SeparatedParser<Out, Prev> {
-    fn parse<'w>(&self, mut words: VecWindow<'w, Word>) -> ParseResult<'w, Vec<Out>> {
-        let parts = words.split(|word| word.text == self.sep.0);
-        let mut last_index = 0;
-        let mut res = Vec::new();
-        let mut errs = Vec::new();
-        for part in parts {
-            let ParseResult(index, out, errs2) = self.prev.parse(part);
-            last_index = index;
-            if let Some(out) = out {
-                res.push(out.1);
-            };
-            errs.extend(errs2);
-        }
-        if last_index == 0 {
-            err_end(0, TokenType::ValueName)
-        } else {
-            words.shrink_start_to(words.end());
-            ParseResult(last_index + 1, Some((words, res)), errs)
-        }
-    }
-    fn debug(&self, recursing: bool) -> ParserDebugString {
-        self.prev
-            .debug(recursing)
-            .nest(format!("Separated by '{}'", self.sep.0))
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct SplitStartParser<Out, Part: Parser<Out>> {
-    part: Part,
-    split_on: Vec<Keyword>,
-    out: PhantomData<Out>,
-}
-
-impl<Out, Part: Parser<Out>> DynSafeParser<Vec<Out>> for SplitStartParser<Out, Part> {
-    fn parse<'w>(&self, mut words: VecWindow<'w, Word>) -> ParseResult<'w, Vec<Out>> {
-        let mut last_index = 0;
-        let mut res = Vec::new();
-        let mut errs = Vec::new();
-        loop {
-            let Some(found) = words
-                .skip(1)
-                .find(|word| self.split_on.iter().any(|k| k.0 == word.text))
-            else {
-                break;
-            };
-            let Some((current, new_words)) = words.snip(found + 1) else {
-                return err_end(0, TokenType::ValueName);
-            };
-            words = new_words;
-            let ParseResult(index, out, errs2) = self.part.parse(current);
-            last_index = index;
-            if let Some(out) = out {
-                res.push(out.1);
-            };
-            errs.extend(errs2);
-        }
-        if last_index == 0 {
-            err_end(0, TokenType::ValueName)
-        } else {
-            words.shrink_start_to(words.end());
-            ParseResult(last_index + 1, Some((words, res)), errs)
-        }
-    }
-    fn debug(&self, recursing: bool) -> ParserDebugString {
-        self.part.debug(recursing).nest(format!(
-            "Split starting with: {}",
-            self.split_on
-                .iter()
-                .map(|k| k.0)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ))
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct OptionalParser<Out, Prev: Parser<Out>> {
-    prev: Prev,
-    out: PhantomData<Out>,
-}
-
-impl<Out: Debug, Prev: Parser<Out>> DynSafeParser<Option<Out>> for OptionalParser<Out, Prev> {
-    fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, Option<Out>> {
-        let ParseResult(index, out, errs) = self.prev.parse(words.clone());
-        match out {
-            Some((words, out)) => ParseResult(index, Some((words, Some(out))), errs),
-            None if index <= 1 => ok(words, 0, None),
-            None => ParseResult(index, None, errs),
-        }
-    }
-    fn debug(&self, recursing: bool) -> ParserDebugString {
-        self.prev.debug(recursing).nest("Optionally".to_string())
-    }
-}
-
-pub struct RecursiveParser<Out>(Rc<OnceCell<Box<dyn DynSafeParser<Out>>>>);
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct RecursiveParserInner<Out, Base: Parser<Out>, Recursive: Parser<Out>> {
-    base: Base,
-    recursive: Recursive,
-    out: PhantomData<Out>,
-}
-
-pub fn recursive<
-    Out: Debug + 'static,
-    Base: Parser<Out> + 'static,
-    Recursive: Parser<Out> + 'static,
->(
-    base: Base,
-    recursive: fn(&dyn Fn() -> RecursiveParser<Out>) -> Recursive,
-) -> RecursiveParser<Out> {
-    let parser = RecursiveParser(Rc::new(OnceCell::new()));
-    parser
-        .0
-        .set(Box::new(RecursiveParserInner {
-            base,
-            recursive: recursive(&|| parser.clone()),
-            out: PhantomData,
-        }))
-        .unwrap_or(());
-    parser
-}
-
-impl<Out> Clone for RecursiveParser<Out> {
-    fn clone(&self) -> Self {
-        RecursiveParser(self.0.clone())
-    }
-}
-
-impl<Out> DynSafeParser<Out> for RecursiveParser<Out> {
-    fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, Out> {
-        self.0.get().unwrap().parse(words)
-    }
-    fn debug(&self, recursing: bool) -> ParserDebugString {
-        if recursing {
-            return ParserDebugString::Just("{{recurse}}".to_string());
-        }
-        self.0.get().unwrap().debug(true)
-    }
-}
-
-impl<Out: Debug, Base: Parser<Out>, Recursive: Parser<Out>> DynSafeParser<Out>
-    for RecursiveParserInner<Out, Base, Recursive>
-{
-    fn parse<'w>(&self, words: VecWindow<'w, Word>) -> ParseResult<'w, Out> {
-        let ParseResult(index, out, errs) = self.base.parse(words.clone());
-        match out {
-            Some(out) => ParseResult(index, Some(out), errs),
-            None if index <= 1 => self.recursive.parse(words),
-            None => ParseResult(index, None, errs),
-        }
-    }
-    fn debug(&self, recursing: bool) -> ParserDebugString {
-        ParserDebugString::Nested("Recursive".to_string(), vec![
-            self.base.debug(false),
-            self.recursive.debug(recursing),
-        ])
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct TodoParser {
+fn parse_helper<'l, T>(
+    mut words: VecWindow<'l, Word>,
     message: &'static str,
-}
-
-pub fn todo(message: &'static str) -> TodoParser {
-    TodoParser { message }
-}
-
-impl<Out: Debug> DynSafeParser<Out> for TodoParser {
-    fn parse<'w>(&self, _words: VecWindow<'w, Word>) -> ParseResult<'w, Out> {
-        panic!("TODO unfinished parser branch: {}", self.message)
+    parse_one: fn(&Word) -> Option<T>,
+) -> ParseResult<'l, T> {
+    let Some(word) = words.pop_first() else {
+        return ParseResult(
+            None,
+            words,
+            vec![ParseError {
+                expected: message.to_string(),
+                got: None,
+            }],
+            0,
+        );
+    };
+    if let Some(res) = parse_one(word) {
+        ParseResult(Some(res), words, Vec::new(), 1)
+    } else {
+        ParseResult(
+            None,
+            words,
+            vec![ParseError {
+                expected: message.to_string(),
+                got: Some(word.clone()),
+            }],
+            0,
+        )
     }
-    fn debug(&self, _recursing: bool) -> ParserDebugString {
-        ParserDebugString::Just(format!("TODO: {}", self.message))
+}
+
+impl Parser<String> for String {
+    fn parse(words: VecWindow<Word>) -> ParseResult<String> {
+        parse_helper(words, "string", |word| {
+            (word.text.starts_with('"') && word.text.ends_with('"'))
+                .then(|| word.text[1..word.text.len() - 1].to_string())
+        })
+    }
+}
+
+impl Parser<i64> for i64 {
+    fn parse(words: VecWindow<Word>) -> ParseResult<i64> {
+        parse_helper(words, "integer", |word| word.text.parse::<i64>().ok())
+    }
+}
+
+impl Parser<f64> for f64 {
+    fn parse(words: VecWindow<Word>) -> ParseResult<f64> {
+        parse_helper(words, "float", |word| word.text.parse::<f64>().ok())
+    }
+}
+
+impl Parser<bool> for bool {
+    fn parse(words: VecWindow<Word>) -> ParseResult<bool> {
+        parse_helper(words, "boolean", |word| match word.text.as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        })
+    }
+}
+
+impl<T: Parser<Out>, Out> Parser<Vec<Out>> for Vec<T> {
+    fn parse(mut words: VecWindow<Word>) -> ParseResult<Vec<Out>> {
+        let mut res = Vec::new();
+        let mut errors = Vec::new();
+        while !words.is_empty() {
+            let ParseResult(item, new_words, new_errors, depth) = T::parse(words);
+            words = new_words;
+            errors.extend(new_errors);
+            if let Some(item) = item {
+                res.push(item);
+            } else {
+                if depth == 0 {
+                    break;
+                }
+                return ParseResult(None, words, errors, res.len());
+            }
+        }
+        let len = res.len() + 1;
+        ParseResult(Some(res), words, errors, len)
+    }
+}
+
+impl<T: Parser<Out>, Out> Parser<Option<Out>> for Option<T> {
+    fn parse(words: VecWindow<Word>) -> ParseResult<Option<Out>> {
+        let ParseResult(res, words, errors, depth) = T::parse(words);
+        if let Some(res) = res {
+            ParseResult(Some(Some(res)), words, errors, depth)
+        } else if depth == 0 {
+            ParseResult(Some(None), words, errors, depth)
+        } else {
+            ParseResult(None, words, errors, depth)
+        }
+    }
+}
+
+impl<T: Parser<Out>, Out> Parser<Box<Out>> for Box<T> {
+    fn parse(words: VecWindow<Word>) -> ParseResult<Box<Out>> {
+        let ParseResult(res, words, errors, depth) = T::parse(words);
+        if let Some(res) = res {
+            ParseResult(Some(Box::new(res)), words, errors, depth)
+        } else {
+            ParseResult(None, words, errors, depth)
+        }
+    }
+}
+
+impl Parser<Word> for Word {
+    fn parse(mut words: VecWindow<Word>) -> ParseResult<Word> {
+        if let Some(word) = words.pop_first() {
+            ParseResult(Some(word.clone()), words, Vec::new(), 1)
+        } else {
+            ParseResult(
+                None,
+                words,
+                vec![ParseError {
+                    expected: "word".to_string(),
+                    got: None,
+                }],
+                0,
+            )
+        }
+    }
+}
+
+impl<T1: Parser<Out1>, Out1, T2: Parser<Out2>, Out2> Parser<(Out1, Out2)> for (T1, T2) {
+    fn parse(words: VecWindow<Word>) -> ParseResult<(Out1, Out2)> {
+        let ParseResult(res1, words, mut errors, depth1) = T1::parse(words);
+        let ParseResult(res2, words, new_errors, depth2) = T2::parse(words);
+        errors.extend(new_errors);
+        if let Some(res1) = res1 {
+            if let Some(res2) = res2 {
+                ParseResult(Some((res1, res2)), words, errors, depth1 + depth2)
+            } else {
+                ParseResult(None, words, errors, depth2)
+            }
+        } else {
+            ParseResult(None, words, errors, depth1)
+        }
     }
 }

@@ -1,4 +1,9 @@
-use crate::Word;
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Word {
+    pub text: String,
+    pub line_number: usize,
+    pub column_number: usize,
+}
 
 pub fn split_words(text: &str, bracket_chars: &'static str) -> Vec<Word> {
     let mut res = Vec::new();

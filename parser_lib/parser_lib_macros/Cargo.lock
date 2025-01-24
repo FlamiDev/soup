@@ -3,13 +3,6 @@
 version = 4
 
 [[package]]
-name = "parser_lib"
-version = "0.1.0"
-dependencies = [
- "parser_lib_macros",
-]
-
-[[package]]
 name = "parser_lib_macros"
 version = "0.1.0"
 dependencies = [

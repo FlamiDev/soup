@@ -1,10 +1,11 @@
 use crate::parser::Program;
-use parser_lib::{split_words, Parser};
+use parser_lib::{setup_logging, split_words, Parser};
 use std::collections::VecDeque;
 
 mod parser;
 
 fn main() {
+    setup_logging();
     let mut args: VecDeque<String> = std::env::args().collect();
     args.pop_front();
     let Some(file) = args.pop_front() else {

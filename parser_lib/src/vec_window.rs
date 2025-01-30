@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::fmt::Debug;
 
 pub struct VecWindow<'l, T> {
@@ -63,6 +64,13 @@ impl<'l, T> VecWindow<'l, T> {
             vec: self.vec,
             start_index: self.start_index + n,
             end_index: self.end_index,
+        }
+    }
+    pub fn take(&self, n: usize) -> Self {
+        VecWindow {
+            vec: self.vec,
+            start_index: self.start_index,
+            end_index: min(self.start_index + n - 1, self.end_index),
         }
     }
     pub fn shrink_start_to(&mut self, new_start: usize) {

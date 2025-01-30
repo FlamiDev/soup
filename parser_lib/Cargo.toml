@@ -5,3 +5,5 @@ edition = "2021"
 
 [dependencies]
 parser_lib_macros = { path = "./parser_lib_macros" }
+env_logger = "0.11.6"
+log = "0.4.25"

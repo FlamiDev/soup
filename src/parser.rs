@@ -1,21 +1,23 @@
-use parser_lib::{Parser, Word};
+use parser_lib::{
+    CommaSeparated, CurlyBrackets, Parser, SquareBrackets, TypeName, ValueName,
+};
 
-#[derive(Clone, Debug, Eq, PartialEq, Parser)]
+#[derive(Clone, Debug, PartialEq, Parser)]
 pub struct Program {
     pub items: Vec<AST>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Parser)]
+#[derive(Clone, Debug, PartialEq, Parser)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum AST {
     Import {
         #[text = "import"]
-        name: Word,
+        name: TypeName,
         from: String,
     },
     Type {
         #[text = "type"]
-        name: Word,
+        name: TypeName,
         #[text = "="]
         value: Type,
     },
@@ -31,26 +33,36 @@ pub enum AST {
     Let {
         #[text = "let"]
         to: MatchItem,
-        type_: Option<Word>,
+        type_: Option<TypeName>,
         #[text = "="]
         from: MatchItem,
     },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Parser)]
+#[derive(Clone, Debug, PartialEq, Parser)]
 pub enum MatchItem {
-    Array(Vec<MatchItem>),
-    Tuple(Vec<(Option<Word>, MatchItem)>),
-    Label(Word, Box<MatchItem>),
-    Name(Word),
+    Array(SquareBrackets<CommaSeparated<MatchItem>>),
+    Tuple(CurlyBrackets<CommaSeparated<(ValueName, MatchItem)>>),
+    Label(TypeName, Box<MatchItem>),
+    Name(ValueName),
     Value(Value),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Parser)]
-pub enum Type {}
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub enum Type {
+    Array(SquareBrackets<Box<Type>>),
+    Tuple(CurlyBrackets<CommaSeparated<(ValueName, Type)>>),
+    //Union(),
+    Reference(Vec<TypeName>),
+}
 
-#[derive(Clone, Debug, Eq, PartialEq, Parser)]
-pub enum Value {}
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub enum Value {
+    Int(i64),
+    Float(f64),
+    String(String),
+    Bool(bool),
+}
 
-#[derive(Clone, Debug, Eq, PartialEq, Parser)]
+#[derive(Clone, Debug, PartialEq, Parser)]
 pub struct Block {}

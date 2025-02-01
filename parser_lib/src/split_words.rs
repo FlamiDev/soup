@@ -13,6 +13,10 @@ pub fn split_words(text: &str, bracket_chars: &'static str) -> Vec<Word> {
         text: String::new(),
     };
     for (line_number, line) in text.lines().enumerate() {
+        let line = line.split_once("//").map_or(line, |(line, _)| line).trim();
+        if line.is_empty() {
+            continue;
+        }
         for (column_number, character) in line.chars().enumerate() {
             if current_word.text.starts_with('\"') {
                 if character == '\"' && !current_word.text.ends_with('\\') {

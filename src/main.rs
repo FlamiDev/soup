@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 mod parser;
 
 fn main() {
-    setup_logging();
+    setup_logging(false);
     let mut args: VecDeque<String> = std::env::args().collect();
     args.pop_front();
     let Some(file) = args.pop_front() else {

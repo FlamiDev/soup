@@ -138,6 +138,25 @@ impl<'l, T> VecWindow<'l, T> {
         });
         res
     }
+    pub fn split_once<F: Fn(&T) -> bool>(&self, on: F) -> Option<(Self, Self)> {
+        for i in self.start_index..=self.end_index {
+            if on(&self.vec[i]) {
+                return Some((
+                    VecWindow {
+                        vec: self.vec,
+                        start_index: self.start_index,
+                        end_index: i - 1,
+                    },
+                    VecWindow {
+                        vec: self.vec,
+                        start_index: i + 1,
+                        end_index: self.end_index,
+                    },
+                ));
+            }
+        }
+        None
+    }
 }
 
 impl<'l, T> From<&'l Vec<T>> for VecWindow<'l, T> {

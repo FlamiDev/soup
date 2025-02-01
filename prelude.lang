@@ -1,5 +1,5 @@
-export type Option A = None | Some A
-export type Result A B = Ok A | Err B
+export type Option A = : None : Some A
+export type Result A B = : Ok A : Err B
 
 export let or = a Option _ b -> a match {
 	Some a -> a

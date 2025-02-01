@@ -21,7 +21,9 @@ pub fn parser_macro(input: TokenStream) -> TokenStream {
         }
         syn::Data::Enum(ref data) => {
             if data.variants.is_empty() {
-                return syn::Error::new(input.span(), "Empty enums are not supported").to_compile_error().into();
+                return syn::Error::new(input.span(), "Empty enums are not supported")
+                    .to_compile_error()
+                    .into();
             }
             let mut variant_parser_names = Vec::new();
             let mut variant_parsers = Vec::new();
@@ -49,16 +51,15 @@ pub fn parser_macro(input: TokenStream) -> TokenStream {
                 impl #impl_generics parser_lib::Parser<#name> for #name #ty_generics #where_clause {
                     fn parse(words: parser_lib::VecWindow<parser_lib::Word>) -> parser_lib::ParseResult<Self> {
                         let mut errors = Vec::new();
-                        parser_lib::log::debug!(">> {}", #type_name);
                         #(
                             let parser_lib::ParseResult(res, new_words, new_errors) = Self::#variant_parser_names(words.clone());
                             if let Some(res) = res {
-                                parser_lib::log::debug!("<< {}", #type_name);
+                                parser_lib::log::info!("> {}", #type_name);
                                 return parser_lib::ParseResult(Some(res), new_words, new_errors);
                             }
                             errors.extend(new_errors);
                         )*
-                        parser_lib::log::debug!("<< {} !! NoMatch", #type_name);
+                        parser_lib::log::debug!("! {} - NoMatch", #type_name);
                         parser_lib::ParseResult(None, words, errors)
                     }
                 }
@@ -91,7 +92,7 @@ fn parse_struct(
                 parse_fields.push(quote! {
                     let parser_lib::ParseResult(res, mut words, errors) = #parse;
                     let Some(#res_name) = res else {
-                        parser_lib::log::debug!("<< {} !! {} !! None", #type_name, #field_name);
+                        parser_lib::log::debug!("! {}.{} !! None", #type_name, #field_name);
                         return parser_lib::ParseResult(None, words, [prev_errors, errors].concat());
                     };
                     prev_errors = errors;
@@ -103,10 +104,9 @@ fn parse_struct(
             }
             quote! {
                 {
-                    parser_lib::log::debug!(">> {}", #type_name);
                     let mut prev_errors = Vec::new();
                     #(#parse_fields)*
-                    parser_lib::log::debug!("<< {}", #type_name);
+                    parser_lib::log::info!("> {}", #type_name);
                     parser_lib::ParseResult(Some(#resulting_type {
                         #(#set_fields)*
                     }), words, prev_errors)
@@ -122,7 +122,7 @@ fn parse_struct(
                 parse_fields.push(quote! {
                     let parser_lib::ParseResult(res, mut words, errors) = #parse;
                     let Some(#res_name) = res else {
-                        parser_lib::log::debug!("<< {} !! {} !! None", #type_name, #i);
+                        parser_lib::log::debug!("! {}.{} !! None", #type_name, #i);
                         return parser_lib::ParseResult(None, words, [prev_errors, errors].concat());
                     };
                     prev_errors = errors;
@@ -131,10 +131,9 @@ fn parse_struct(
             }
             quote! {
                 {
-                    parser_lib::log::debug!(">> {}", #type_name);
                     let mut prev_errors = Vec::new();
                     #(#parse_fields)*
-                    parser_lib::log::debug!("<< {}", #type_name);
+                    parser_lib::log::info!("> {}", #type_name);
                     parser_lib::ParseResult(Some(#resulting_type (
                         #(#set_fields)*
                     )), words, prev_errors)
@@ -142,7 +141,7 @@ fn parse_struct(
             }
         }
         syn::Fields::Unit => quote! {
-            parser_lib::log::debug!("-- {}", #type_name);
+            parser_lib::log::info!("> {}", #type_name);
             parser_lib::ParseResult(Some(#resulting_type), words, Vec::new())
         },
     }
@@ -169,7 +168,7 @@ fn parse_field(field: &syn::Field, type_name: String) -> TokenStream2 {
                     parser_lib::log::debug!("\"{}\"", #val);
                 } else {
                     let first = words.first().cloned();
-                    parser_lib::log::debug!("<< {} !! \"{}\" !! \"{}\"", #type_name, #val, first.as_ref().map_or("EOF".to_string(), |x| x.text.clone()));
+                    parser_lib::log::debug!("! {} - \"{}\" !! \"{}\"", #type_name, #val, first.as_ref().map_or("EOF".to_string(), |x| x.text.clone()));
                     return parser_lib::ParseResult(None, words, vec![parser_lib::ParseError {
                         expected: #val.to_string(),
                         got: first,

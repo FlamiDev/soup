@@ -44,11 +44,15 @@ let write_my_file = ? write_file "./{some_folder}/my_file"
 
 import SomeLib "https://github.com/user/library"
 
+type LongUnion =
+    : A Int
+    : B String
+    : C {x Int, y String}
+
 type Day = {year Int, month Int, day Int}
 type Person = {name String, birth Day}
-type Account = Person + {email String, password_hash String}
 
-let johns_account = {"John", {day 5, month 8, year 1990}, "john@example.com", "4s5gre54hrh878i9uyt"}
+let john = {"John", {day 5, month 8, year 1990}}
 
 let to_string = a Day -> "{a.year}-{a.month}-{a.day}"
 let to_string = a Person -> "{a.name} was born on {a.birth}"

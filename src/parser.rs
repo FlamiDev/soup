@@ -1,6 +1,22 @@
 use parser_lib::{
-    CommaSeparated, CurlyBrackets, Parser, SquareBrackets, TypeName, ValueName,
+    separator, CurlyBrackets, NonEmptyVec, Parentheses, Parser, SeparatedBy, SeparatedOnce,
+    SquareBrackets, TypeName, ValueName,
 };
+
+separator!(Comma = ",");
+separator!(Colon = ":");
+separator!(Dot = ".");
+separator!(Equals = "==");
+separator!(NotEquals = "!=");
+separator!(LessThan = "<");
+separator!(LessThanOrEqual = "<=");
+separator!(GreaterThan = ">");
+separator!(GreaterThanOrEqual = ">=");
+separator!(Plus = "+");
+separator!(Minus = "-");
+separator!(Multiply = "*");
+separator!(Divide = "/");
+separator!(Modulo = "%");
 
 #[derive(Clone, Debug, PartialEq, Parser)]
 pub struct Program {
@@ -28,32 +44,85 @@ pub enum AST {
     TestBlock {
         #[text = "test"]
         description: String,
-        block: Block,
+        block: Parentheses<Vec<TestItem>>,
     },
     Let {
         #[text = "let"]
         to: MatchItem,
         type_: Option<TypeName>,
         #[text = "="]
-        from: MatchItem,
+        from: NormalValue,
     },
-}
-
-#[derive(Clone, Debug, PartialEq, Parser)]
-pub enum MatchItem {
-    Array(SquareBrackets<CommaSeparated<MatchItem>>),
-    Tuple(CurlyBrackets<CommaSeparated<(ValueName, MatchItem)>>),
-    Label(TypeName, Box<MatchItem>),
-    Name(ValueName),
-    Value(Value),
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
 pub enum Type {
     Array(SquareBrackets<Box<Type>>),
-    Tuple(CurlyBrackets<CommaSeparated<(ValueName, Type)>>),
-    //Union(),
-    Reference(Vec<TypeName>),
+    Tuple(CurlyBrackets<SeparatedBy<Comma, (ValueName, Type)>>),
+    Union(NonEmptyVec<UnionPart>),
+    Reference(NonEmptyVec<TypeName>),
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub struct UnionPart {
+    #[text = ":"]
+    pub name: TypeName,
+    pub type_: Option<Type>,
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub enum NormalValue {
+    Expression(Box<Expression>),
+    MatchItem(MatchItem),
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub enum AlwaysWrappedValue {
+    Expression(Parentheses<Expression>),
+    MatchItem(MatchItem),
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub enum MatchItem {
+    Array(SquareBrackets<SeparatedBy<Comma, MatchItem>>),
+    Tuple(CurlyBrackets<SeparatedBy<Comma, (ValueName, MatchItem)>>),
+    Label(TypeName, Box<MatchItem>),
+    //Block(Block),
+    //Function(),
+    Name(ValueName),
+    Value(Value),
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub enum Expression {
+    Equals(SeparatedOnce<Equals, NormalValue, NormalValue>),
+    NotEquals(SeparatedOnce<NotEquals, NormalValue, NormalValue>),
+    LessThan(SeparatedOnce<LessThan, NormalValue, NormalValue>),
+    LessThanOrEqual(SeparatedOnce<LessThanOrEqual, NormalValue, NormalValue>),
+    GreaterThan(SeparatedOnce<GreaterThan, NormalValue, NormalValue>),
+    GreaterThanOrEqual(SeparatedOnce<GreaterThanOrEqual, NormalValue, NormalValue>),
+    Plus(SeparatedOnce<Plus, NormalValue, NormalValue>),
+    Minus(SeparatedOnce<Minus, NormalValue, NormalValue>),
+    Multiply(SeparatedOnce<Multiply, NormalValue, NormalValue>),
+    Divide(SeparatedOnce<Divide, NormalValue, NormalValue>),
+    Modulo(SeparatedOnce<Modulo, NormalValue, NormalValue>),
+    Negate {
+        #[text = "-"]
+        value: Box<NormalValue>,
+    },
+    FunctionCalls {
+        input_value: Box<AlwaysWrappedValue>,
+        function_name: ValueName,
+        arguments: Vec<AlwaysWrappedValue>,
+        piped_calls: Vec<FunctionCall>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub struct FunctionCall {
+    #[text = ","]
+    pub name: ValueName,
+    pub arguments: Vec<AlwaysWrappedValue>,
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
@@ -62,6 +131,27 @@ pub enum Value {
     Float(f64),
     String(String),
     Bool(bool),
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub enum TestItem {
+    Mock {
+        #[text = "mock"]
+        name: ValueName,
+        #[text = "="]
+        value: NormalValue,
+    },
+    Assert {
+        #[text = "assert"]
+        value: NormalValue,
+    },
+    Let {
+        #[text = "let"]
+        to: MatchItem,
+        type_: Option<TypeName>,
+        #[text = "="]
+        from: NormalValue,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]

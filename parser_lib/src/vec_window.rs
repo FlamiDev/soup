@@ -96,8 +96,8 @@ impl<'l, T> VecWindow<'l, T> {
             return Some((
                 Self {
                     vec: self.vec,
-                    start_index: self.start_index,
-                    end_index: self.start_index - 1,
+                    start_index: 1,
+                    end_index: 0,
                 },
                 self,
             ));
@@ -123,6 +123,9 @@ impl<'l, T> VecWindow<'l, T> {
         let mut start = self.start_index;
         for i in self.start_index..=self.end_index {
             if on(&self.vec[i]) {
+                if i == 0 {
+                    continue;
+                }
                 res.push(VecWindow {
                     vec: self.vec,
                     start_index: start,
@@ -141,6 +144,20 @@ impl<'l, T> VecWindow<'l, T> {
     pub fn split_once<F: Fn(&T) -> bool>(&self, on: F) -> Option<(Self, Self)> {
         for i in self.start_index..=self.end_index {
             if on(&self.vec[i]) {
+                if i == 0 {
+                    return Some((
+                        VecWindow {
+                            vec: self.vec,
+                            start_index: 1,
+                            end_index: 0,
+                        },
+                        VecWindow {
+                            vec: self.vec,
+                            start_index: i + 1,
+                            end_index: self.end_index,
+                        },
+                    ));
+                }
                 return Some((
                     VecWindow {
                         vec: self.vec,
@@ -161,6 +178,13 @@ impl<'l, T> VecWindow<'l, T> {
 
 impl<'l, T> From<&'l Vec<T>> for VecWindow<'l, T> {
     fn from(vec: &'l Vec<T>) -> Self {
+        if vec.is_empty() {
+            return VecWindow {
+                vec,
+                start_index: 1,
+                end_index: 0,
+            };
+        }
         VecWindow {
             vec,
             start_index: 0,

@@ -15,7 +15,6 @@ separator!(GreaterThanOrEqual = ">=");
 separator!(Plus = "+");
 separator!(Minus = "-");
 separator!(Multiply = "*");
-separator!(Divide = "/");
 separator!(Modulo = "%");
 
 #[derive(Clone, Debug, PartialEq, Parser)]
@@ -49,7 +48,7 @@ pub enum AST {
     Let {
         #[text = "let"]
         to: MatchItem,
-        type_: Option<TypeName>,
+        type_: Option<Type>,
         #[text = "="]
         from: NormalValue,
     },
@@ -109,7 +108,6 @@ pub enum Expression {
     Plus(SeparatedOnce<Plus, NormalValue, NormalValue>),
     Minus(SeparatedOnce<Minus, NormalValue, NormalValue>),
     Multiply(SeparatedOnce<Multiply, NormalValue, NormalValue>),
-    Divide(SeparatedOnce<Divide, NormalValue, NormalValue>),
     Modulo(SeparatedOnce<Modulo, NormalValue, NormalValue>),
     Negate {
         #[text = "-"]
@@ -176,7 +174,7 @@ pub struct Block {
 pub struct BlockLet {
     #[text = "let"]
     pub to: MatchItem,
-    pub type_: Option<TypeName>,
+    pub type_: Option<Type>,
     #[text = "="]
     pub from: NormalValue,
 }

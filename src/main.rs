@@ -1,5 +1,5 @@
 use crate::parser::Program;
-use parser_lib::{setup_logging, split_words, Parser};
+use parser_lib::{setup_logging, split_words, BracketPair, Parser};
 use std::collections::VecDeque;
 
 mod parser;
@@ -13,7 +13,23 @@ fn main() {
         return;
     };
     let input = std::fs::read_to_string(file).expect("Failed to read file");
-    let words = split_words(input.as_str(), "(){}[]");
+    let words = split_words(
+        input.as_str(),
+        vec![
+            BracketPair {
+                open: '{',
+                close: '}',
+            },
+            BracketPair {
+                open: '(',
+                close: ')',
+            },
+            BracketPair {
+                open: '[',
+                close: ']',
+            },
+        ],
+    );
     let program = Program::parse((&words).into());
     println!("{:#?}", program);
 }

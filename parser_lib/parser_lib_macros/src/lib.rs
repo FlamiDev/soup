@@ -163,12 +163,12 @@ fn parse_field(field: &syn::Field, type_name: String) -> TokenStream2 {
             };
             let val = lit.value();
             Some(quote! {
-                if words.first().map(|w| &w.text) == Some(&#val.to_string()) {
+                if words.first().and_then(|w| w.get_word()) == Some(&#val.to_string()) {
                     words.pop_first();
-                    parser_lib::log::debug!("\"{}\"", #val);
+                    parser_lib::log::info!("\"{}\"", #val);
                 } else {
                     let first = words.first().cloned();
-                    parser_lib::log::debug!("! {} - \"{}\" !! \"{}\"", #type_name, #val, first.as_ref().map_or("EOF".to_string(), |x| x.text.clone()));
+                    parser_lib::log::debug!("! {} - \"{}\" !! \"{}\"", #type_name, #val, first.as_ref().map_or("EOF".to_string(), |x| x.display_text()));
                     return parser_lib::ParseResult(None, words, vec![parser_lib::ParseError {
                         expected: #val.to_string(),
                         got: first,

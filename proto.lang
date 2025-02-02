@@ -14,7 +14,7 @@ test "empty list" (
 	mock map = l f -> l map (x -> x debug_print f)
 	assert [] div_map 2 == []
 )
-let div_map Int = a List Int b Int -> a map (x -> x div b or 0)
+let div_map Fn [Int] Int -> Int = a b -> a map (x -> x div b or 0)
 
 let sum = ? match (
 	[] -> 0

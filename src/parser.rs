@@ -60,6 +60,13 @@ pub enum Type {
     Array(SquareBrackets<Box<Type>>),
     Tuple(CurlyBrackets<SeparatedBy<Comma, (ValueName, Type)>>),
     Union(NonEmptyVec<UnionPart>),
+    Function {
+        #[text = "Fn"]
+        params: Vec<Type>,
+        #[text = "->"]
+        return_type: Box<Type>,
+    },
+    Group(Parentheses<Vec<Type>>),
     Reference(NonEmptyVec<TypeName>),
 }
 
@@ -87,8 +94,6 @@ pub enum MatchItem {
     Array(SquareBrackets<SeparatedBy<Comma, MatchItem>>),
     Tuple(CurlyBrackets<SeparatedBy<Comma, (ValueName, MatchItem)>>),
     Label(TypeName, Box<MatchItem>),
-    //Block(Block),
-    //Function(),
     Name(ValueName),
     Value(Value),
 }
@@ -109,6 +114,12 @@ pub enum Expression {
     Negate {
         #[text = "-"]
         value: Box<NormalValue>,
+    },
+    Block(Parentheses<Block>),
+    Function {
+        params: Vec<(ValueName, Option<TypeName>)>,
+        #[text = "->"]
+        body: NormalValue,
     },
     FunctionCalls {
         input_value: Box<AlwaysWrappedValue>,
@@ -155,4 +166,17 @@ pub enum TestItem {
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
-pub struct Block {}
+pub struct Block {
+    pub lets: Vec<BlockLet>,
+    #[text = "ret"]
+    pub ret: NormalValue,
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub struct BlockLet {
+    #[text = "let"]
+    pub to: MatchItem,
+    pub type_: Option<TypeName>,
+    #[text = "="]
+    pub from: NormalValue,
+}

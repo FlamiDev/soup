@@ -190,8 +190,8 @@ impl<T: Parser<T>> Parser<Vec<T>> for Vec<T> {
         while !words.is_empty() {
             let ParseResult(item, new_words, new_errors) = T::parse(words);
             words = new_words;
-            errors.extend(new_errors);
             if let Some(item) = item {
+                errors.extend(new_errors);
                 res.push(item);
                 log::info!("--");
             } else {

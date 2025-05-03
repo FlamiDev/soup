@@ -51,6 +51,18 @@ pub enum WordValue {
     },
 }
 
+impl Display for WordValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            WordValue::Word(word) => word.clone(),
+            WordValue::Brackets { open, close, .. } => {
+                format!("{}{}", open, close)
+            }
+        };
+        write!(f, "{}", str)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BracketPair {
     pub open: char,
@@ -77,8 +89,8 @@ pub fn split_words(text: &str, brackets: Vec<BracketPair>) -> Vec<Word> {
         let mut current_text = String::new();
         let mut column_from = 0;
         for (column_number, character) in line.chars().enumerate() {
-            if current_text.starts_with('\"') {
-                if character == '\"' && !current_text.ends_with('\\') {
+            if current_text.starts_with('"') {
+                if character == '"' && !current_text.ends_with('\\') {
                     current_text.push(character);
                     res.push(line_number, column_from, column_number, current_text);
                     current_text = String::new();

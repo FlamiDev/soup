@@ -1,0 +1,40 @@
+// imported
+use {head, tail} "list"
+// head is
+def pub A head [A] -> Option { A; [A] }
+// prelude
+// typ pub means allowed to construct from outside this file
+typ pub Option A =
+    | Some A
+    | None
+
+def pub A B map [A] -> (A -> B) -> [B]
+let map = items mapper ->
+    items head:
+        | Some { first; rest } -> first mapper, cons (rest map mapper)
+        | None -> []
+
+// no type definition is fine
+// but cannot be public
+// because that would make inference sad
+let some_func = a b ->
+    foo some_calc bar
+    <- foo = a add b
+       bar = 42
+
+let pi_approx = 3.14159
+
+has Order =
+    greater => Self -> Self -> Bool
+    less => Self -> Self -> Bool
+
+def pub N sum_squares [N] -> N
+    where N: Number
+let sum_squares = numbers ->
+    numbers map (_ pow 2), sum
+
+// dependent typing
+typ pub Vec T len U32 = len :
+    | 0 -> {}
+    | len -> { T; Vec T (len - 1) }
+

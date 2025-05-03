@@ -1,11 +1,13 @@
+use crate::errors::show_errors;
 use crate::parser::Program;
-use parser_lib::{setup_logging, split_words, BracketPair, Parser};
+use parser_lib::{split_words, BracketPair, Parser};
 use std::collections::VecDeque;
 
+mod errors;
 mod parser;
 
 fn main() {
-    setup_logging(false);
+    //setup_logging(false);
     let mut args: VecDeque<String> = std::env::args().collect();
     args.pop_front();
     let Some(file) = args.pop_front() else {
@@ -31,5 +33,6 @@ fn main() {
         ],
     );
     let program = Program::parse((&words).into());
-    println!("{:#?}", program);
+    println!("{:#?}", program.0);
+    show_errors(input.as_str(), program.2);
 }

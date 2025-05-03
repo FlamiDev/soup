@@ -1,0 +1,12 @@
+trait UI = {
+	row -> LayoutElement
+	col -> LayoutElement
+	img -> ImageElement
+	txt -> TextElement
+	btn -> ButtonElement
+	nav -> NavigationElement
+	txtbox -> TextBoxElement
+	switch -> SwitchElement
+	checkbox -> CheckBoxElement
+	dropdown -> DropDownElement
+}

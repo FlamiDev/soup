@@ -22,11 +22,11 @@ let sum = ? match (
 )
 
 test "sum range" (
-	assert [1..5] sum == 10
+	assert 1 to 5, sum == 10
 )
 
 test "value compare" (
-	assert Some Ok 12 == Some Ok 12
+	assert Some (Ok 12) == Some (Ok 12)
 )
 
 import File "file"
@@ -52,7 +52,7 @@ type LongUnion =
 type Day = {year Int, month Int, day Int}
 type Person = {name String, birth Day}
 
-let john = {"John", {day 5, month 8, year 1990}}
+let john = {name "John", birth {day 5, month 8, year 1990}}
 
 let to_string = a Day -> "{a.year}-{a.month}-{a.day}"
 let to_string = a Person -> "{a.name} was born on {a.birth}"

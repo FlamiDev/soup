@@ -1,0 +1,34 @@
+import Math "math"
+import Vec "vec"
+
+// type Vec.Vec = {x Int, y Int}
+
+type Vec = Vec.Vec
+type VecPair = {a Vec, b Vec}
+
+let triangles = n -> n bases_in_grid, map (n top_count ?), sum
+
+let top_count Fn Int, VecPair -> Int = n, {a, b} -> (
+	let diff = a - b
+	use mid <- diff div 2, otherwise 0
+	let mid = b + mid
+	let rotated = {x diff.y, y -diff.x}
+	
+	// ff zorgen dat je alleen hele getallen pakt
+	// die dus op grid puntjes zitten
+	let gcd = rotated.x Math.gcd rotated.y
+	let step = rotated / gcd
+	
+	let steps_pos = mid take_steps step, take_while ({x, y} -> x >= 0 && x <= n && y >= 0 && y <= n), count
+	let steps_neg = mid take_steps -step, take_while ({x, y} -> x >= 0 && x <= n && y >= 0 && y <= n), count
+	
+	ret steps_pos + steps_neg
+)
+
+// product has type Fn [A] [B] -> [{A, B}] where the result is every possible combination of a and b
+let bases_in_grid Fn Int -> [VecPair] = n -> (n coords_in_grid) product (n coords_in_grid), filter (i -> i.a != i.b)
+let coords_in_grid Fn Int -> [Vec] = n -> 0 to n, product (0 to n)
+
+
+
+

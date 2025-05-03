@@ -1,6 +1,6 @@
 use parser_lib::{
     separator, CurlyBrackets, NonEmptyVec, Parentheses, Parser, SeparatedBy, SeparatedOnce,
-    SquareBrackets, TypeName, ValueName,
+    SquareBrackets, StatementVec, TypeName, ValueName,
 };
 
 separator!(Comma = ",");
@@ -19,7 +19,7 @@ separator!(Modulo = "%");
 
 #[derive(Clone, Debug, PartialEq, Parser)]
 pub struct Program {
-    pub items: Vec<AST>,
+    pub items: StatementVec<AST>,
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
@@ -29,6 +29,10 @@ pub enum AST {
         #[text = "import"]
         name: TypeName,
         from: String,
+    },
+    Export {
+        #[text = "export"]
+        value: Box<AST>,
     },
     Type {
         #[text = "type"]
@@ -43,7 +47,7 @@ pub enum AST {
     TestBlock {
         #[text = "test"]
         description: String,
-        block: Parentheses<Vec<TestItem>>,
+        block: Parentheses<StatementVec<TestItem>>,
     },
     Let {
         #[text = "let"]
@@ -51,6 +55,31 @@ pub enum AST {
         type_: Option<Type>,
         #[text = "="]
         from: NormalValue,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub struct PathPrefix {
+    pub name: TypeName,
+    #[text = "."]
+    pub _nothing: (),
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub struct TypeRef {
+    pub path: Vec<PathPrefix>,
+    pub name: TypeName,
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub enum ValueRef {
+    Standard {
+        path: Vec<PathPrefix>,
+        name: ValueName,
+    },
+    ImplicitArg {
+        #[text = "?"]
+        _nothing: (),
     },
 }
 
@@ -66,7 +95,7 @@ pub enum Type {
         return_type: Box<Type>,
     },
     Group(Parentheses<Vec<Type>>),
-    Reference(NonEmptyVec<TypeName>),
+    Reference(NonEmptyVec<TypeRef>),
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
@@ -92,9 +121,10 @@ pub enum AlwaysWrappedValue {
 pub enum MatchItem {
     Array(SquareBrackets<SeparatedBy<Comma, MatchItem>>),
     Tuple(CurlyBrackets<SeparatedBy<Comma, (ValueName, MatchItem)>>),
-    Label(TypeName, Box<MatchItem>),
-    Name(ValueName),
+    Label(TypeRef, #[text = ":"] TypeName, Box<MatchItem>),
+    Name(ValueRef),
     Value(Value),
+    Rest(#[text = ".."] ValueRef),
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
@@ -115,22 +145,22 @@ pub enum Expression {
     },
     Block(Parentheses<Block>),
     Function {
-        params: Vec<(ValueName, Option<TypeName>)>,
+        params: Vec<(ValueName, Option<TypeRef>)>,
         #[text = "->"]
         body: NormalValue,
     },
     FunctionCalls {
         input_value: Box<AlwaysWrappedValue>,
-        function_name: ValueName,
+        function_name: ValueRef,
         arguments: Vec<AlwaysWrappedValue>,
-        piped_calls: Vec<FunctionCall>,
+        piped_calls: StatementVec<FunctionCall>,
     },
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
 pub struct FunctionCall {
     #[text = ","]
-    pub name: ValueName,
+    pub name: ValueRef,
     pub arguments: Vec<AlwaysWrappedValue>,
 }
 
@@ -146,7 +176,7 @@ pub enum Value {
 pub enum TestItem {
     Mock {
         #[text = "mock"]
-        name: ValueName,
+        name: ValueRef,
         #[text = "="]
         value: NormalValue,
     },
@@ -165,7 +195,7 @@ pub enum TestItem {
 
 #[derive(Clone, Debug, PartialEq, Parser)]
 pub struct Block {
-    pub lets: Vec<BlockLet>,
+    pub lets: StatementVec<BlockLet>,
     #[text = "ret"]
     pub ret: NormalValue,
 }

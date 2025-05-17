@@ -54,7 +54,7 @@ pub enum AST {
         to: MatchItem,
         type_: Option<Type>,
         #[text = "="]
-        from: NormalValue,
+        from: Box<NormalValue>,
     },
 }
 

@@ -4,7 +4,9 @@ use std::fmt::Debug;
 #[derive(Eq, PartialEq)]
 pub struct VecWindow<'l, T> {
     vec: &'l Vec<T>,
+    /// inclusive
     start_index: usize,
+    /// exclusive
     end_index: usize,
 }
 
@@ -169,7 +171,7 @@ impl<'l, T> VecWindow<'l, T> {
         if self.is_empty() {
             return vec![];
         }
-        // if the window has only one element
+        // if the window has only one element,
         // splitting it would just return the same window
         if self.size() <= 1 {
             return vec![self];

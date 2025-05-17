@@ -89,7 +89,7 @@ mod test_separated_by {
     fn invalid_leading() {
         let input = ",1,2,3";
         let words = split_words(input, vec![]);
-        
+
         let ParseResult(res, words, errors) = SeparatedBy::<Comma, i64>::parse((&words).into());
         assert_eq!(res.unwrap().0, vec![1, 2, 3]);
         assert_eq!(words.size(), 0);
@@ -102,7 +102,6 @@ mod test_separated_by {
         let ParseResult(res, words, errors) = SeparatedBy::<Comma, i64>::parse((&words).into());
         assert_eq!(res.unwrap().0, vec![1, 3]);
         assert_eq!(words.size(), 0);
-        println!("{:?}", errors);
         assert_eq!(errors.len(), 1);
     }
 }
@@ -142,13 +141,44 @@ impl<BY: SeparatedBySeparator, A: Parser<A>, B: Parser<B>> Parser<SeparatedOnce<
             return ParseResult(None, words, errors);
         }
         let ParseResult(res2, words, new_errors) = B::parse(second);
+        errors.extend(new_errors);
         let Some(res2) = res2 else {
             log::debug!("! SeparatedOnce {} !! second_part", BY::SEPARATOR);
             return ParseResult(None, words, errors);
         };
-        errors.extend(new_errors);
         log::info!("> SeparatedOnce {}", BY::SEPARATOR);
         ParseResult(Some(SeparatedOnce(res1, res2, PhantomData)), words, errors)
+    }
+}
+
+#[cfg(test)]
+mod test_separated_once {
+    use super::*;
+    use crate::split_words;
+
+    use crate as parser_lib;
+    separator!(Comma = ",");
+
+    #[test]
+    fn valid() {
+        let input = "1,2,3";
+        let words = split_words(input, vec![]);
+        let ParseResult(res, words, errors) =
+            SeparatedOnce::<Comma, i64, i64>::parse((&words).into());
+        let value = res.unwrap();
+        assert_eq!(value.0, 1);
+        assert_eq!(value.1, 2);
+        assert_eq!(words.size(), 2);
+    }
+    #[test]
+    fn invalid() {
+        let input = "1,";
+        let words = split_words(input, vec![]);
+        let ParseResult(res, words, errors) =
+            SeparatedOnce::<Comma, i64, i64>::parse((&words).into());
+        assert!(res.is_none());
+        assert_eq!(words.size(), 0);
+        assert_eq!(errors.len(), 1);
     }
 }
 
@@ -165,10 +195,10 @@ impl<T: Parser<T>> Parser<StatementVec<T>> for StatementVec<T> {
         let mut errors = Vec::new();
         for part in parts {
             let ParseResult(item, new_words, new_errors) = T::parse(part);
+            errors.extend(new_errors);
             if let Some(item) = item {
                 res.push(item);
             }
-            errors.extend(new_errors);
             if let Some(word) = new_words.first() {
                 log::debug!("! StatementVec - end_part !! {}", word);
                 errors.push(ParseError {
@@ -178,5 +208,48 @@ impl<T: Parser<T>> Parser<StatementVec<T>> for StatementVec<T> {
             }
         }
         ParseResult(Some(StatementVec(res)), words.empty(), errors)
+    }
+}
+
+#[cfg(test)]
+mod test_statement_vec {
+    use super::*;
+    use crate::split_words;
+
+    use crate as parser_lib;
+    separator!(Comma = ",");
+
+    #[derive(Parser)]
+    struct FancyInt {
+        #[text = "int"]
+        value: i64,
+    }
+
+    #[test]
+    fn valid() {
+        let input = "int 1 int 2 int 3";
+        let words = split_words(input, vec![]);
+        let ParseResult(res, words, errors) = StatementVec::<FancyInt>::parse((&words).into());
+        let value = res.unwrap();
+        assert_eq!(value.0.len(), 3);
+        assert_eq!(value.0[0].value, 1);
+        assert_eq!(value.0[1].value, 2);
+        assert_eq!(value.0[2].value, 3);
+        assert_eq!(words.size(), 0);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn invalid() {
+        let input = "int 1 int 2 int";
+        let words = split_words(input, vec![]);
+        let ParseResult(res, words, errors) = StatementVec::<FancyInt>::parse((&words).into());
+        let value = res.unwrap();
+        assert_eq!(value.0.len(), 2);
+        assert_eq!(value.0[0].value, 1);
+        assert_eq!(value.0[1].value, 2);
+        assert_eq!(words.size(), 0);
+        println!("errors: {:?}", errors);
+        assert_eq!(errors.len(), 1);
     }
 }

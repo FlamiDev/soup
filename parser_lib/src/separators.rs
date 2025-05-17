@@ -30,13 +30,14 @@ impl<BY: SeparatedBySeparator, T: Parser<T>> Parser<SeparatedBy<BY, T>> for Sepa
         let len = split_words.len();
         for (i, split_word) in split_words.into_iter().enumerate() {
             let ParseResult(item, new_words, new_errors) = T::parse(split_word);
+            let no_errors = new_errors.is_empty();
             errors.extend(new_errors);
             if let Some(item) = item {
                 res.push(item);
             }
             if i == len - 1 {
                 words = new_words;
-            } else if !new_words.is_empty() {
+            } else if !new_words.is_empty() && no_errors {
                 if let Some(word) = new_words.first() {
                     log::debug!("! SeparatedBy {} - end_part !! {}", BY::SEPARATOR, word);
                     errors.push(ParseError {
@@ -91,7 +92,7 @@ mod test_separated_by {
         let words = split_words(input, vec![]);
 
         let ParseResult(res, words, errors) = SeparatedBy::<Comma, i64>::parse((&words).into());
-        assert_eq!(res.unwrap().0, vec![1, 2, 3]);
+        assert_eq!(res.unwrap().0, vec![2, 3]);
         assert_eq!(words.size(), 0);
         assert_eq!(errors.len(), 1);
     }
@@ -169,6 +170,7 @@ mod test_separated_once {
         assert_eq!(value.0, 1);
         assert_eq!(value.1, 2);
         assert_eq!(words.size(), 2);
+        assert_eq!(errors.len(), 0)
     }
     #[test]
     fn invalid() {
@@ -195,16 +197,19 @@ impl<T: Parser<T>> Parser<StatementVec<T>> for StatementVec<T> {
         let mut errors = Vec::new();
         for part in parts {
             let ParseResult(item, new_words, new_errors) = T::parse(part);
+            let no_errors = new_errors.is_empty();
             errors.extend(new_errors);
             if let Some(item) = item {
                 res.push(item);
             }
-            if let Some(word) = new_words.first() {
-                log::debug!("! StatementVec - end_part !! {}", word);
-                errors.push(ParseError {
-                    expected: "[end of statement]".to_string(),
-                    got: Some(word.clone()),
-                });
+            if no_errors && !new_words.is_empty() {
+                if let Some(word) = new_words.first() {
+                    log::debug!("! StatementVec - end_part !! {}", word);
+                    errors.push(ParseError {
+                        expected: "[end of statement]".to_string(),
+                        got: Some(word.clone()),
+                    });
+                }
             }
         }
         ParseResult(Some(StatementVec(res)), words.empty(), errors)

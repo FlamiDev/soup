@@ -1,6 +1,5 @@
 use parser_lib::ParseError;
 use std::collections::HashMap;
-use std::ops::{Range, RangeBounds};
 use yansi::Paint;
 
 pub fn show_errors(code: &str, errors: Vec<ParseError>) {
@@ -65,7 +64,7 @@ impl<'l> ErrorFile<'l> {
             .got
             .map(|w| (w.line, w.column_from, w.column_to, w.value.to_string()))
             .unwrap_or((0, 0, 0, "<<nothing>>".to_string()));
-        let errors = self.errors.entry(line).or_insert_with(Vec::new);
+        let errors = self.errors.entry(line).or_default();
         if let Some(err) = errors
             .iter_mut()
             .find(|err| err.from == from && err.to == to && err.got == got)

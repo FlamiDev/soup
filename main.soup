@@ -1,18 +1,21 @@
-// imported
-use {head, tail} "list"
-// head is
-def pub A head [A] -> Option { A; [A] }
 // prelude
 // typ pub means allowed to construct from outside this file
 typ pub Option A =
     | Some A
     | None
 
-def pub A B map [A] -> (A -> B) -> [B]
+// dependent typing
+// also {} is a tuple type and they can't have named fields
+// use a more specific type if you think you need a named field
+typ pub Vec T { len U32 } = len :
+    | 0 -> {}
+    | len -> { T; Vec T (len - 1) }
+
+def pub map A B = Vec A -> (A -> B) -> Vec B
 let map = items mapper ->
     items head:
-        | Some { first; rest } -> first mapper, cons (rest map mapper)
-        | None -> []
+        | { first; rest } -> { first mapper; rest map mapper }
+        | {} -> {}
 
 // no type definition is fine
 // but cannot be public
@@ -20,7 +23,7 @@ let map = items mapper ->
 let some_func = a b ->
     foo some_calc bar
     <- foo = a add b
-       bar = 42
+    <- bar = 42
 
 let pi_approx = 3.14159
 
@@ -28,13 +31,29 @@ has Order =
     greater => Self -> Self -> Bool
     less => Self -> Self -> Bool
 
-def pub N sum_squares [N] -> N
+use { d_readline } "io"
+
+doc "Ask a question in the console and return the answer"
+def d_ask = String -> String
+let d_ask = question ->
+    question cat " > ", readline
+
+use { sum } "iter"
+
+def pub sum_squares N = [N] -> N
     where N: Number
 let sum_squares = numbers ->
     numbers map (_ pow 2), sum
 
-// dependent typing
-typ pub Vec T len U32 = len :
-    | 0 -> {}
-    | len -> { T; Vec T (len - 1) }
+// calling wasm target from js target
+use { wasm_run } "js/wasm"
+def call_wasm_test = U64 -> #target["wasm"] (U64 -> I32) -> I32
+let call_wasm_test = value func -> func wasm_run value
 
+// region js/wasm.soup
+typ pub WasmFunc Args Returns = { file String }
+
+def wasm_run Args Returns = WasmFunc Args Returns -> @Args -> Returns
+let wasm_run = func, @args ->
+    func file, js_load_wasm, js_call_wasm args, js_get_wasm_result
+// endregion js/wasm.soup

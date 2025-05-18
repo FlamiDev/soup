@@ -14,7 +14,7 @@ pub fn parser_macro(input: TokenStream) -> TokenStream {
             let name = &input.ident;
             let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
             let output = quote! {
-                impl #impl_generics parser_lib::Parser<#name> for #name #ty_generics #where_clause {
+                impl #impl_generics parser_lib::Parser<#name #ty_generics> for #name #ty_generics #where_clause {
                     fn parse(mut words: parser_lib::VecWindow<parser_lib::Word>) -> parser_lib::ParseResult<Self> #body
                     fn starting_keywords() -> Vec<&'static str> {
                         vec![#keywword]
@@ -68,7 +68,7 @@ pub fn parser_macro(input: TokenStream) -> TokenStream {
             }
             let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
             let output = quote! {
-                impl #impl_generics parser_lib::Parser<#name> for #name #ty_generics #where_clause {
+                impl #impl_generics parser_lib::Parser<#name #ty_generics> for #name #ty_generics #where_clause {
                     fn parse(words: parser_lib::VecWindow<parser_lib::Word>) -> parser_lib::ParseResult<Self> {
                         let mut errors = Vec::new();
                         #(

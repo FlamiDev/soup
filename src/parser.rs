@@ -5,206 +5,179 @@ use parser_lib::{
 
 separator!(Comma = ",");
 separator!(Colon = ":");
-separator!(Dot = ".");
-separator!(Equals = "==");
-separator!(NotEquals = "!=");
-separator!(LessThan = "<");
-separator!(LessThanOrEqual = "<=");
-separator!(GreaterThan = ">");
-separator!(GreaterThanOrEqual = ">=");
-separator!(Plus = "+");
-separator!(Minus = "-");
-separator!(Multiply = "*");
-separator!(Modulo = "%");
-
-#[derive(Clone, Debug, PartialEq, Parser)]
-pub struct Program {
-    pub items: StatementVec<AST>,
-}
+separator!(Semicolon = ";");
+separator!(ArrowRight = "->");
 
 #[derive(Clone, Debug, PartialEq, Parser)]
 #[allow(clippy::upper_case_acronyms)]
-pub enum AST {
-    Import {
-        #[text = "import"]
-        name: TypeName,
+pub struct AST {
+    pub items: StatementVec<Declaration>,
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub enum Declaration {
+    Use {
+        #[text = "use"]
+        imports: CurlyBrackets<SeparatedBy<Semicolon, Import>>,
         from: String,
     },
-    Export {
-        #[text = "export"]
-        value: Box<AST>,
-    },
-    Type {
-        #[text = "type"]
-        name: TypeName,
-        #[text = "="]
-        value: Type,
-    },
-    DocComment {
+    Doc {
         #[text = "doc"]
         comment: String,
     },
-    TestBlock {
-        #[text = "test"]
-        description: String,
-        block: Parentheses<StatementVec<TestItem>>,
+    Type {
+        #[text = "typ"]
+        is_pub: Option<PubToken>,
+        name: TypeName,
+        type_args: Vec<TypeName>,
+        dependencies: Option<CurlyBrackets<SeparatedBy<Semicolon, TypedValue>>>,
+        #[text = "="]
+        value: Type,
+    },
+    Has {
+        #[text = "has"]
+        name: TypeName,
+        type_args: Vec<TypeName>,
+        #[text = "="]
+        value: NonEmptyVec<HasRequirement>,
+    },
+    Def {
+        #[text = "def"]
+        is_pub: Option<PubToken>,
+        name: ValueName,
+        type_args: Vec<TypeName>,
+        #[text = "="]
+        value: TypeRef,
     },
     Let {
         #[text = "let"]
-        to: MatchItem,
-        type_: Option<Type>,
-        #[text = "="]
-        from: Box<NormalValue>,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Parser)]
-pub struct PathPrefix {
-    pub name: TypeName,
-    #[text = "."]
-    pub _nothing: (),
-}
-
-#[derive(Clone, Debug, PartialEq, Parser)]
-pub struct TypeRef {
-    pub path: Vec<PathPrefix>,
-    pub name: TypeName,
-}
-
-#[derive(Clone, Debug, PartialEq, Parser)]
-pub enum ValueRef {
-    Standard {
-        path: Vec<PathPrefix>,
         name: ValueName,
+        #[text = "="]
+        be: Box<Value>,
     },
-    ImplicitArg {
-        #[text = "?"]
-        _nothing: (),
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub enum Import {
+    Value(ValueName),
+    Type(TypeName),
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub struct PubToken {
+    #[text = "pub"]
+    _nothing: (),
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub enum TypeRef {
+    Function(SeparatedOnce<ArrowRight, Box<TypeRef>, Box<TypeRef>>),
+    InParens(Parentheses<Box<TypeRef>>),
+    WithDependencies {
+        type_: TypeName,
+        dependencies: CurlyBrackets<SeparatedBy<Semicolon, (ValueName, Value)>>,
     },
+    Raw(Vec<TypeName>),
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub struct TypedValue {
+    name: ValueName,
+    type_: TypeRef,
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub struct HasRequirement {
+    name: ValueName,
+    #[text = "=>"]
+    type_: TypeRef,
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub struct UnionOption {
+    #[text = "|"]
+    name: TypeName,
+    value: Option<TypeRef>,
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
 pub enum Type {
-    Array(SquareBrackets<Box<Type>>),
-    Tuple(CurlyBrackets<SeparatedBy<Comma, (ValueName, Type)>>),
-    Union(NonEmptyVec<UnionPart>),
-    Function {
-        #[text = "Fn"]
-        params: Vec<Type>,
-        #[text = "->"]
-        return_type: Box<Type>,
+    Union(Vec<UnionOption>),
+    Tuple(CurlyBrackets<SeparatedBy<Semicolon, TypeRef>>),
+    Match {
+        on: TypeOrValue,
+        #[text = ":"]
+        matchers: Vec<Matcher<TypeName, Type>>,
     },
-    Group(Parentheses<Vec<Type>>),
-    Reference(NonEmptyVec<TypeRef>),
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
-pub struct UnionPart {
-    #[text = ":"]
-    pub name: TypeName,
-    pub type_: Option<Type>,
+pub enum TypeOrValue {
+    Type(TypeRef),
+    Value(ValueName),
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
-pub enum NormalValue {
-    Expression(Box<Expression>),
-    MatchItem(MatchItem),
+pub struct Matcher<MatchValue, Value>
+where
+    MatchValue: Parser<MatchValue>,
+    Value: Parser<Value>,
+{
+    #[text = "|"]
+    on: MatchItem<MatchValue>,
+    #[text = "->"]
+    value: Value,
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
-pub enum AlwaysWrappedValue {
-    Expression(Parentheses<Expression>),
-    MatchItem(MatchItem),
-}
-
-#[derive(Clone, Debug, PartialEq, Parser)]
-pub enum MatchItem {
-    Array(SquareBrackets<SeparatedBy<Comma, MatchItem>>),
-    Tuple(CurlyBrackets<SeparatedBy<Comma, (ValueName, MatchItem)>>),
-    Label(TypeRef, #[text = ":"] TypeName, Box<MatchItem>),
-    Name(ValueRef),
+pub enum MatchItem<Value>
+where
+    Value: Parser<Value>,
+{
+    Union {
+        name: TypeName,
+        value: Option<Box<MatchItem<Value>>>,
+    },
+    Tuple(CurlyBrackets<SeparatedBy<Semicolon, MatchItem<Value>>>),
     Value(Value),
-    Rest(#[text = ".."] ValueRef),
-}
-
-#[derive(Clone, Debug, PartialEq, Parser)]
-pub enum Expression {
-    Equals(SeparatedOnce<Equals, NormalValue, NormalValue>),
-    NotEquals(SeparatedOnce<NotEquals, NormalValue, NormalValue>),
-    LessThan(SeparatedOnce<LessThan, NormalValue, NormalValue>),
-    LessThanOrEqual(SeparatedOnce<LessThanOrEqual, NormalValue, NormalValue>),
-    GreaterThan(SeparatedOnce<GreaterThan, NormalValue, NormalValue>),
-    GreaterThanOrEqual(SeparatedOnce<GreaterThanOrEqual, NormalValue, NormalValue>),
-    Plus(SeparatedOnce<Plus, NormalValue, NormalValue>),
-    Minus(SeparatedOnce<Minus, NormalValue, NormalValue>),
-    Multiply(SeparatedOnce<Multiply, NormalValue, NormalValue>),
-    Modulo(SeparatedOnce<Modulo, NormalValue, NormalValue>),
-    Negate {
-        #[text = "-"]
-        value: Box<NormalValue>,
-    },
-    Block(Parentheses<Block>),
-    Function {
-        params: Vec<(ValueName, Option<TypeRef>)>,
-        #[text = "->"]
-        body: NormalValue,
-    },
-    FunctionCalls {
-        input_value: Box<AlwaysWrappedValue>,
-        function_name: ValueRef,
-        arguments: Vec<AlwaysWrappedValue>,
-        piped_calls: StatementVec<FunctionCall>,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Parser)]
-pub struct FunctionCall {
-    #[text = ","]
-    pub name: ValueRef,
-    pub arguments: Vec<AlwaysWrappedValue>,
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
 pub enum Value {
+    InParens(Parentheses<Box<Value>>),
+    List(SquareBrackets<SeparatedBy<Semicolon, Value>>),
+    MatchSequence(SeparatedOnce<Colon, Box<Value>, Vec<Matcher<ValueName, Value>>>),
+    CallSequence(SeparatedOnce<Comma, CallsStart, SeparatedBy<Comma, CallsContinue>>),
+    Boolean(bool),
     Int(i64),
     Float(f64),
     String(String),
-    Bool(bool),
+    Function {
+        args: Vec<ValueName>,
+        #[text = "->"]
+        returns: Box<Value>,
+        with: Vec<FunctionWithBlock>,
+    },
+    Ref(ValueName),
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
-pub enum TestItem {
-    Mock {
-        #[text = "mock"]
-        name: ValueRef,
-        #[text = "="]
-        value: NormalValue,
-    },
-    Assert {
-        #[text = "assert"]
-        value: NormalValue,
-    },
-    Let {
-        #[text = "let"]
-        to: MatchItem,
-        type_: Option<TypeName>,
-        #[text = "="]
-        from: NormalValue,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Parser)]
-pub struct Block {
-    pub lets: StatementVec<BlockLet>,
-    #[text = "ret"]
-    pub ret: NormalValue,
-}
-
-#[derive(Clone, Debug, PartialEq, Parser)]
-pub struct BlockLet {
-    #[text = "let"]
-    pub to: MatchItem,
-    pub type_: Option<Type>,
+pub struct FunctionWithBlock {
+    #[text = "<-"]
+    name: ValueName,
     #[text = "="]
-    pub from: NormalValue,
+    block: Box<Value>,
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub struct CallsStart {
+    initial: Box<Value>,
+    function: ValueName,
+    args: Vec<Value>,
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub struct CallsContinue {
+    function: ValueName,
+    args: Vec<Value>,
 }

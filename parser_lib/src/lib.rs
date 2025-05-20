@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::io::Write;
 
 mod basics;
@@ -18,15 +19,36 @@ pub use separators::*;
 pub use split_words::{split_words, BracketPair, Word};
 pub use vec_window::VecWindow;
 
-pub fn setup_logging(debug: bool) {
+pub fn setup_logging() {
     env_logger::Builder::new()
         .format(|buf, record| writeln!(buf, "{}", record.args()))
-        .filter_level(if debug {
-            log::LevelFilter::max()
-        } else {
-            log::LevelFilter::Info
-        })
+        .filter_level(log::LevelFilter::max())
         .init();
+}
+
+#[inline(always)]
+pub fn log_start(type_name: &str) {
+    log::debug!("\x1b[37m{:25} parsing\x1b[0m", type_name);
+}
+#[inline(always)]
+pub fn log_parsed<T: Debug>(type_name: &str, value: &T) {
+    log::debug!("\x1b[32m{:25} parsed {:?}\x1b[0m", type_name, value);
+}
+#[inline(always)]
+pub fn log_message(type_name: &str, message: &str) {
+    log::debug!("\x1b[33m{:25} {}\x1b[0m", type_name, message);
+}
+#[inline(always)]
+pub fn log_error<T: Debug>(type_name: &str, value: &T) {
+    log::debug!("\x1b[31m{:25} error on {:?}\x1b[0m", type_name, value);
+}
+#[inline(always)]
+pub fn log_eof(type_name: &str) {
+    log::debug!("\x1b[31m{:25} EOF\x1b[0m", type_name);
+}
+#[inline(always)]
+pub fn log_end(type_name: &str) {
+    log::debug!("\x1b[34m{:25} end\x1b[0m", type_name);
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -44,11 +44,11 @@ impl<'l> ErrorFile<'l> {
                 }
                 println!("{:<4} | {}", line + 1, self.lines[*line]);
                 println!(
-                    "{:indent$}{:^<width$}{}",
+                    "     | {:indent$}{:^<width$}{}",
                     "",
                     "^".bold().red(),
                     message.red(),
-                    indent = error.from + 7,
+                    indent = error.from,
                     width = if error.to > error.from {
                         error.to - error.from
                     } else {
@@ -69,7 +69,9 @@ impl<'l> ErrorFile<'l> {
             .iter_mut()
             .find(|err| err.from == from && err.to == to && err.got == got)
         {
-            err.expected.push(new.expected);
+            if !err.expected.iter().any(|e| e == &new.expected) {
+                err.expected.push(new.expected);
+            }
         } else {
             errors.push(Error {
                 from,
@@ -78,8 +80,6 @@ impl<'l> ErrorFile<'l> {
                 got,
             });
             errors.sort_by(|a, b| a.from.cmp(&b.from).reverse().then(a.to.cmp(&b.to)));
-            errors
-                .dedup_by(|a, b| b.from < a.from && b.from < a.to && a.from < b.to && a.to < b.to);
         }
     }
 

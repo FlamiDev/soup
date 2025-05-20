@@ -1,4 +1,6 @@
-use crate::{ParseError, ParseResult, Parser, VecWindow, Word};
+use crate::{
+    log_end, log_eof, log_error, log_start, ParseError, ParseResult, Parser, VecWindow, Word,
+};
 use std::marker::PhantomData;
 
 pub trait SeparatedBySeparator {
@@ -21,7 +23,8 @@ pub struct SeparatedBy<BY: SeparatedBySeparator, T>(Vec<T>, PhantomData<BY>);
 
 impl<BY: SeparatedBySeparator, T: Parser<T>> Parser<SeparatedBy<BY, T>> for SeparatedBy<BY, T> {
     fn parse(mut words: VecWindow<Word>) -> ParseResult<SeparatedBy<BY, T>> {
-        log::info!("- SeparatedBy {}", BY::SEPARATOR);
+        let type_name = format!("SeparatedBy<{}>", BY::SEPARATOR);
+        log_start(&type_name);
         let split_words = words
             .clone()
             .split(|word| word.get_word().is_some_and(|t| t == BY::SEPARATOR));
@@ -39,7 +42,7 @@ impl<BY: SeparatedBySeparator, T: Parser<T>> Parser<SeparatedBy<BY, T>> for Sepa
                 words = new_words;
             } else if !new_words.is_empty() && no_errors {
                 if let Some(word) = new_words.first() {
-                    log::debug!("! SeparatedBy {} - end_part !! {}", BY::SEPARATOR, word);
+                    log_eof(&type_name);
                     errors.push(ParseError {
                         expected: BY::SEPARATOR.to_string(),
                         got: Some(word.clone()),
@@ -47,7 +50,7 @@ impl<BY: SeparatedBySeparator, T: Parser<T>> Parser<SeparatedBy<BY, T>> for Sepa
                 }
             }
         }
-        log::info!("> SeparatedBy {}", BY::SEPARATOR);
+        log_end(&type_name);
         ParseResult(Some(SeparatedBy(res, PhantomData)), words, errors)
     }
 }
@@ -114,11 +117,12 @@ impl<BY: SeparatedBySeparator, A: Parser<A>, B: Parser<B>> Parser<SeparatedOnce<
     for SeparatedOnce<BY, A, B>
 {
     fn parse(words: VecWindow<Word>) -> ParseResult<SeparatedOnce<BY, A, B>> {
+        let type_name = format!("SeparatedOnce<{}>", BY::SEPARATOR);
         let Some((first, second)) = words
             .clone()
             .split_once(|word| word.get_word().is_some_and(|t| t == BY::SEPARATOR))
         else {
-            log::debug!("! SeparatedOnce {} !! EOF", BY::SEPARATOR);
+            log_eof(&type_name);
             return ParseResult(
                 None,
                 words,
@@ -128,26 +132,28 @@ impl<BY: SeparatedBySeparator, A: Parser<A>, B: Parser<B>> Parser<SeparatedOnce<
                 }],
             );
         };
+        let first_word = first.first().cloned();
         let ParseResult(res1, words, mut errors) = A::parse(first);
         let Some(res1) = res1 else {
-            log::debug!("! SeparatedOnce {} !! first_part", BY::SEPARATOR);
+            log_error(&type_name, &first_word);
             return ParseResult(None, words, errors);
         };
         if let Some(word) = words.first() {
-            log::debug!("! SeparatedOnce {} - separator !! {}", BY::SEPARATOR, word);
+            log_error(&type_name, &word);
             errors.push(ParseError {
                 expected: BY::SEPARATOR.to_string(),
                 got: Some(word.clone()),
             });
             return ParseResult(None, words, errors);
         }
+        let second_word = second.first().cloned();
         let ParseResult(res2, words, new_errors) = B::parse(second);
         errors.extend(new_errors);
         let Some(res2) = res2 else {
-            log::debug!("! SeparatedOnce {} !! second_part", BY::SEPARATOR);
+            log_error(&type_name, &second_word);
             return ParseResult(None, words, errors);
         };
-        log::info!("> SeparatedOnce {}", BY::SEPARATOR);
+        log_end(&type_name);
         ParseResult(Some(SeparatedOnce(res1, res2, PhantomData)), words, errors)
     }
 }
@@ -189,6 +195,7 @@ pub struct StatementVec<T>(Vec<T>);
 
 impl<T: Parser<T>> Parser<StatementVec<T>> for StatementVec<T> {
     fn parse(words: VecWindow<Word>) -> ParseResult<StatementVec<T>> {
+        log_start("StatementVec");
         let statement_keywords = T::starting_keywords();
         let parts = words.clone().split_including_start(|word| {
             statement_keywords.contains(&word.get_word().unwrap_or(""))
@@ -204,7 +211,7 @@ impl<T: Parser<T>> Parser<StatementVec<T>> for StatementVec<T> {
             }
             if no_errors && !new_words.is_empty() {
                 if let Some(word) = new_words.first() {
-                    log::debug!("! StatementVec - end_part !! {}", word);
+                    log_error("StatementVec", &word);
                     errors.push(ParseError {
                         expected: "[end of statement]".to_string(),
                         got: Some(word.clone()),
@@ -212,6 +219,7 @@ impl<T: Parser<T>> Parser<StatementVec<T>> for StatementVec<T> {
                 }
             }
         }
+        log_end("StatementVec");
         ParseResult(Some(StatementVec(res)), words.empty(), errors)
     }
 }

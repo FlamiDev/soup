@@ -1,22 +1,24 @@
-use crate::{ParseError, ParseResult, Parser, VecWindow, Word};
+use crate::{
+    log_end, log_error, log_message, log_parsed, log_start, ParseResult, Parser, VecWindow, Word,
+};
 
 impl<T: Parser<T>> Parser<Vec<T>> for Vec<T> {
     fn parse(mut words: VecWindow<Word>) -> ParseResult<Vec<T>> {
         let mut res = Vec::new();
         let mut errors = Vec::new();
-        log::info!("- Vec");
+        log_start("Vec");
         while !words.is_empty() {
             let ParseResult(item, new_words, new_errors) = T::parse(words);
             words = new_words;
             if let Some(item) = item {
                 errors.extend(new_errors);
                 res.push(item);
-                log::info!("--");
+                log_message("Vec", "---");
             } else {
                 break;
             }
         }
-        log::info!("> Vec");
+        log_end("Vec");
         ParseResult(Some(res), words, errors)
     }
 }
@@ -57,21 +59,26 @@ mod test_parse_vec {
 pub struct NonEmptyVec<T>(Vec<T>);
 
 impl<T: Parser<T>> Parser<NonEmptyVec<T>> for NonEmptyVec<T> {
-    fn parse(words: VecWindow<Word>) -> ParseResult<NonEmptyVec<T>> {
-        let ParseResult(res, words, mut errors) = Vec::<T>::parse(words);
-        if let Some(res) = res {
-            if res.is_empty() {
-                errors.push(ParseError {
-                    expected: "[one or more items]".to_string(),
-                    got: None,
-                });
-                ParseResult(None, words, errors)
+    fn parse(mut words: VecWindow<Word>) -> ParseResult<NonEmptyVec<T>> {
+        let mut res = Vec::new();
+        let mut errors = Vec::new();
+        log_start("NonEmptyVec");
+        while !words.is_empty() {
+            let ParseResult(item, new_words, new_errors) = T::parse(words);
+            words = new_words;
+            if let Some(item) = item {
+                errors.extend(new_errors);
+                res.push(item);
+                log_message("Vec", "---");
             } else {
-                ParseResult(Some(NonEmptyVec(res)), words, errors)
+                if !res.is_empty() {
+                    break;
+                }
+                return ParseResult(None, words, new_errors);
             }
-        } else {
-            ParseResult(None, words, errors)
         }
+        log_end("NonEmptyVec");
+        ParseResult(Some(NonEmptyVec(res)), words, errors)
     }
 }
 
@@ -101,17 +108,20 @@ mod test_parse_non_empty_vec {
 
 impl<T1: Parser<Out1>, Out1, T2: Parser<Out2>, Out2> Parser<(Out1, Out2)> for (T1, T2) {
     fn parse(words: VecWindow<Word>) -> ParseResult<(Out1, Out2)> {
-        log::info!("- 2-tuple");
+        log_start("Tuple2");
+        let first = words.first().cloned();
         let ParseResult(res1, words, errors1) = T1::parse(words);
         let ParseResult(res2, words, errors2) = T2::parse(words);
-        log::debug!("> 2-tuple");
         if let Some(res1) = res1 {
             if let Some(res2) = res2 {
+                log_parsed("Tuple2", &first);
                 ParseResult(Some((res1, res2)), words, [errors1, errors2].concat())
             } else {
+                log_error("Tuple2", &first);
                 ParseResult(None, words, errors2)
             }
         } else {
+            log_error("Tuple2", &first);
             ParseResult(None, words, errors1)
         }
     }

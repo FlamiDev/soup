@@ -9,7 +9,7 @@ typ pub Option A =
 // use a more specific type if you think you need a named field
 typ pub Vec T { len U32 } = len :
     | 0 -> {}
-    | len -> { T; Vec T (len - 1) }
+    | len -> { T; Vec T { len (len - 1) } }
 
 def pub map A B = Vec A -> (A -> B) -> Vec B
 let map = items mapper ->
@@ -30,44 +30,44 @@ let pi_approx = 3.14159
 has Order =
     greater => Self -> Self -> Bool
     less => Self -> Self -> Bool
-
-use { d_readline } "io"
-
-doc "Ask a question in the console and return the answer"
-def d_ask = String -> String
-let d_ask = question ->
-    question cat " > ", readline
-
-use { sum } "iter"
-
-def pub sum_squares N = Vec N -> N
-    where N: Number
-let sum_squares = numbers ->
-    numbers map (_ pow 2), sum
-
-// calling wasm target from js target
-use { wasm_run } "js/wasm"
-def call_wasm_test = U64 -> #target["wasm"] (U64 -> I32) -> I32
-let call_wasm_test = value func -> func wasm_run value
-
-// region js/wasm.soup
-typ pub WasmFunc Args Returns = { FilePath }
-
-def wasm_run Args Returns = WasmFunc Args Returns -> @Args -> Returns
-let wasm_run = func, @args ->
-    func file, js_load_wasm, js_call_wasm args, js_get_wasm_result
-// endregion js/wasm.soup
-
-def tuple_to_string T = T -> String
-let tuple_to_string = tuple -> tuple:
-    | { first; @rest } -> first to_string, cat ", ", rest tuple_to_string
-    | {} -> ""
-
-def string_to_tuple T = String -> T
-let string_to_tuple = string -> T:
-    | { Type } -> { string parse }
-    | { Type; @Rest } -> (
-        string split_once ", ":
-            | { first; rest } -> { first parse; rest string_to_tuple }
-        )
-    | {} -> {}
+//
+//use { d_readline } "io"
+//
+//doc "Ask a question in the console and return the answer"
+//def d_ask = String -> String
+//let d_ask = question ->
+//    question cat " > ", readline
+//
+//use { sum } "iter"
+//
+//def pub sum_squares N = Vec N -> N
+//    where N: Number
+//let sum_squares = numbers ->
+//    numbers map (_ pow 2), sum
+//
+//// calling wasm target from js target
+//use { wasm_run } "js/wasm"
+//def call_wasm_test = U64 -> #target["wasm"] (U64 -> I32) -> I32
+//let call_wasm_test = value func -> func wasm_run value
+//
+//// region js/wasm.soup
+//typ pub WasmFunc Args Returns = { FilePath }
+//
+//def wasm_run Args Returns = WasmFunc Args Returns -> @Args -> Returns
+//let wasm_run = func, @args ->
+//    func file, js_load_wasm, js_call_wasm args, js_get_wasm_result
+//// endregion js/wasm.soup
+//
+//def tuple_to_string T = T -> String
+//let tuple_to_string = tuple -> tuple:
+//    | { first; @rest } -> first to_string, cat ", ", rest tuple_to_string
+//    | {} -> ""
+//
+//def string_to_tuple T = String -> T
+//let string_to_tuple = string -> T:
+//    | { Type } -> { string parse }
+//    | { Type; @Rest } -> (
+//        string split_once ", ":
+//            | { first; rest } -> { first parse; rest string_to_tuple }
+//        )
+//    | {} -> {}

@@ -75,9 +75,13 @@ pub enum TypeRef {
     InParens(Parentheses<Box<TypeRef>>),
     WithDependencies {
         type_: TypeName,
+        args: Vec<TypeRef>,
         dependencies: CurlyBrackets<SeparatedBy<Semicolon, (ValueName, Value)>>,
     },
-    Raw(Vec<TypeName>),
+    Raw {
+        type_: TypeName,
+        args: Vec<TypeRef>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
@@ -102,12 +106,12 @@ pub struct UnionOption {
 
 #[derive(Clone, Debug, PartialEq, Parser)]
 pub enum Type {
-    Union(Vec<UnionOption>),
+    Union(NonEmptyVec<UnionOption>),
     Tuple(CurlyBrackets<SeparatedBy<Semicolon, TypeRef>>),
     Match {
         on: TypeOrValue,
         #[text = ":"]
-        matchers: Vec<Matcher<TypeName, Type>>,
+        matchers: NonEmptyVec<Matcher<TypeOrValue, Type>>,
     },
 }
 
@@ -146,14 +150,14 @@ where
 pub enum Value {
     InParens(Parentheses<Box<Value>>),
     List(SquareBrackets<SeparatedBy<Semicolon, Value>>),
-    MatchSequence(SeparatedOnce<Colon, Box<Value>, Vec<Matcher<ValueName, Value>>>),
+    MatchSequence(SeparatedOnce<Colon, Box<Value>, NonEmptyVec<Matcher<ValueName, Value>>>),
     CallSequence(SeparatedOnce<Comma, CallsStart, SeparatedBy<Comma, CallsContinue>>),
     Boolean(bool),
     Int(i64),
     Float(f64),
     String(String),
     Function {
-        args: Vec<ValueName>,
+        args: NonEmptyVec<ValueName>,
         #[text = "->"]
         returns: Box<Value>,
         with: Vec<FunctionWithBlock>,

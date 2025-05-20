@@ -1,12 +1,15 @@
-use crate::{ParseResult, Parser, VecWindow, Word};
+use crate::{log_parsed, log_start, ParseResult, Parser, VecWindow, Word};
 
 impl<T: Parser<Out>, Out> Parser<Option<Out>> for Option<T> {
     fn parse(words: VecWindow<Word>) -> ParseResult<Option<Out>> {
-        log::info!("- Option");
+        log_start("Option");
+        let first = words.first().cloned();
         let ParseResult(res, words, errors) = T::parse(words);
         if let Some(res) = res {
+            log_parsed("Option Some", &first);
             ParseResult(Some(Some(res)), words, errors)
         } else {
+            log_parsed("Option None", &first);
             ParseResult(Some(None), words, Vec::new())
         }
     }
@@ -44,7 +47,7 @@ mod test_parse_option {
 
 impl<T: Parser<Out>, Out> Parser<Box<Out>> for Box<T> {
     fn parse(words: VecWindow<Word>) -> ParseResult<Box<Out>> {
-        log::info!("- Box");
+        log_start("Box");
         let ParseResult(res, words, errors) = T::parse(words);
         ParseResult(res.map(Box::new), words, errors)
     }

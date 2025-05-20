@@ -43,7 +43,7 @@ pub fn parser_macro(input: TokenStream) -> TokenStream {
                 );
                 let keyword_check = if let Some(keyword) = keyword {
                     keywords.push(keyword.clone());
-                    quote! { words.first().and_then(|w| w.get_word()).is_none_or(|w| w == #keyword) }
+                    quote! { words.first().and_then(|w| w.get_word()).is_some_and(|w| w == #keyword) }
                 } else {
                     quote! { true }
                 };
@@ -55,7 +55,7 @@ pub fn parser_macro(input: TokenStream) -> TokenStream {
                     if #keyword_check {
                         let parser_lib::ParseResult(res, new_words, new_errors) = Self::#function_name(words.clone());
                         if let Some(res) = res {
-                            parser_lib::log::info!("> {}", #type_name);
+                            parser_lib::log_end(#type_name);
                             return parser_lib::ParseResult(Some(res), new_words, new_errors);
                         }
                         errors.extend(new_errors);
@@ -70,11 +70,15 @@ pub fn parser_macro(input: TokenStream) -> TokenStream {
             let output = quote! {
                 impl #impl_generics parser_lib::Parser<#name #ty_generics> for #name #ty_generics #where_clause {
                     fn parse(words: parser_lib::VecWindow<parser_lib::Word>) -> parser_lib::ParseResult<Self> {
+                        parser_lib::log_start(#type_name);
+                        let first_word = words.first().cloned();
                         let mut errors = Vec::new();
                         #(
                             #variant_parser_calls
                         )*
-                        parser_lib::log::debug!("! {} - NoMatch", #type_name);
+                        parser_lib::log_error(#type_name, &first_word);
+                        let error_count_message = format!("errors.len() = {}", errors.len());
+                        parser_lib::log_message(#type_name, &error_count_message);
                         parser_lib::ParseResult(None, words, errors)
                     }
                     fn starting_keywords() -> Vec<&'static str> {
@@ -116,12 +120,16 @@ fn parse_struct(
                     .as_ref()
                     .map_or("".to_string(), |i| i.to_string());
                 parse_fields.push(quote! {
-                    let parser_lib::ParseResult(res, mut words, errors) = #parse;
+                    let first_word = words.first().cloned();
+                    let parser_lib::ParseResult(res, mut words, new_errors) = #parse;
+                    errors.extend(new_errors);
                     let Some(#res_name) = res else {
-                        parser_lib::log::debug!("! {}.{} !! None", #type_name, #field_name);
-                        return parser_lib::ParseResult(None, words, [prev_errors, errors].concat());
+                        let type_field_name = format!("{}.{}", #type_name, #field_name);
+                        parser_lib::log_error(&type_field_name, &first_word);
+                        let error_count_message = format!("errors.len() = {}", errors.len());
+                        parser_lib::log_message(&type_field_name, &error_count_message);
+                        return parser_lib::ParseResult(None, words, errors);
                     };
-                    prev_errors = errors;
                 });
                 let ident = field.ident.clone().unwrap();
                 set_fields.push(quote! {
@@ -130,12 +138,13 @@ fn parse_struct(
             }
             let res = quote! {
                 {
-                    let mut prev_errors = Vec::new();
+                    parser_lib::log_start(#type_name);
+                    let mut errors = Vec::new();
                     #(#parse_fields)*
-                    parser_lib::log::info!("> {}", #type_name);
+                    parser_lib::log_end(#type_name);
                     parser_lib::ParseResult(Some(#resulting_type {
                         #(#set_fields)*
-                    }), words, prev_errors)
+                    }), words, errors)
                 }
             };
             (first_attr, res)
@@ -151,23 +160,28 @@ fn parse_struct(
                 }
                 let res_name = syn::Ident::new(&format!("res{}", i), field.span());
                 parse_fields.push(quote! {
-                    let parser_lib::ParseResult(res, mut words, errors) = #parse;
+                    let first_word = words.first().cloned();
+                    let parser_lib::ParseResult(res, mut words, new_errors) = #parse;
+                    errors.extend(new_errors);
                     let Some(#res_name) = res else {
-                        parser_lib::log::debug!("! {}.{} !! None", #type_name, #i);
-                        return parser_lib::ParseResult(None, words, [prev_errors, errors].concat());
+                        let type_field_name = format!("{}.{}", #type_name, #i);
+                        parser_lib::log_error(&type_field_name, &first_word);
+                        let error_count_message = format!("errors.len() = {}", errors.len());
+                        parser_lib::log_message(&type_field_name, &error_count_message);
+                        return parser_lib::ParseResult(None, words, errors);
                     };
-                    prev_errors = errors;
                 });
                 set_fields.push(quote! { #res_name, });
             }
             let res = quote! {
                 {
-                    let mut prev_errors = Vec::new();
+                    parser_lib::log_start(#type_name);
+                    let mut errors = Vec::new();
                     #(#parse_fields)*
-                    parser_lib::log::info!("> {}", #type_name);
+                    parser_lib::log_end(#type_name);
                     parser_lib::ParseResult(Some(#resulting_type (
                         #(#set_fields)*
-                    )), words, prev_errors)
+                    )), words, errors)
                 }
             };
             (first_attr, res)
@@ -175,8 +189,10 @@ fn parse_struct(
         syn::Fields::Unit => (
             None,
             quote! {
-                parser_lib::log::info!("> {}", #type_name);
-                parser_lib::ParseResult(Some(#resulting_type), words, Vec::new())
+                {
+                    parser_lib::log_end(#type_name);
+                    parser_lib::ParseResult(Some(#resulting_type), words, Vec::new())
+                }
             },
         ),
     }
@@ -200,10 +216,13 @@ fn parse_field(field: &syn::Field, type_name: String) -> (Option<String>, TokenS
             let res = quote! {
                 if words.first().and_then(|w| w.get_word()) == Some(&#val.to_string()) {
                     words.pop_first();
-                    parser_lib::log::info!("\"{}\"", #val);
+                    parser_lib::log_parsed(#type_name, &#val);
                 } else {
                     let first = words.first().cloned();
-                    parser_lib::log::debug!("! {} - \"{}\" !! \"{}\"", #type_name, #val, first.as_ref().map_or("EOF".to_string(), |x| x.display_text()));
+                    let display_text = first.as_ref().map_or("EOF".to_string(), |x| x.display_text());
+                    parser_lib::log_error(#type_name, &display_text);
+                    let error_count_message = format!("errors.len() = {}", errors.len());
+                    parser_lib::log_message(#type_name, &error_count_message);
                     return parser_lib::ParseResult(None, words, vec![parser_lib::ParseError {
                         expected: #val.to_string(),
                         got: first,
@@ -217,12 +236,12 @@ fn parse_field(field: &syn::Field, type_name: String) -> (Option<String>, TokenS
     let ty = &field.ty;
     let log_field_name = field.ident.as_ref().map(|i| i.to_string()).map_or(
         quote! {},
-        |ident| quote! { parser_lib::log::debug!("{}:", #ident) },
+        |ident| quote! { parser_lib::log_message(#type_name, #ident); },
     );
     let res = quote! {
         {
             #(#parse_attrs)*
-            #log_field_name;
+            #log_field_name
             parser_lib::parse_to_type::<#ty>(words)
         }
     };

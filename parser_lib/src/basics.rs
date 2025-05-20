@@ -1,4 +1,6 @@
-use crate::{ParseError, ParseResult, Parser, VecWindow, Word};
+use crate::{
+    log_eof, log_error, log_parsed, log_start, ParseError, ParseResult, Parser, VecWindow, Word,
+};
 
 impl Parser<Word> for Word {
     fn parse(words: VecWindow<Word>) -> ParseResult<Word> {
@@ -9,30 +11,31 @@ impl Parser<Word> for Word {
 #[inline(always)]
 fn parse_helper<'l, T>(
     words: VecWindow<'l, Word>,
-    message: &'static str,
+    type_name: &'static str,
     parse_one: fn(&Word) -> Option<T>,
 ) -> ParseResult<'l, T> {
+    log_start(type_name);
     let Some(word) = words.first() else {
-        log::debug!("! {} !! EOF", message);
+        log_eof(type_name);
         return ParseResult(
             None,
             words,
             vec![ParseError {
-                expected: message.to_string(),
+                expected: type_name.to_string(),
                 got: None,
             }],
         );
     };
     if let Some(res) = parse_one(word) {
-        log::info!("> {} -> {}", message, word);
+        log_parsed(type_name, word);
         ParseResult(Some(res), words.skip(1), Vec::new())
     } else {
-        log::debug!("! {} !! {}", message, word);
+        log_error(type_name, word);
         ParseResult(
             None,
             words.clone(),
             vec![ParseError {
-                expected: message.to_string(),
+                expected: type_name.to_string(),
                 got: Some(word.clone()),
             }],
         )
@@ -118,64 +121,10 @@ mod test_parse_i64 {
 }
 
 impl Parser<f64> for f64 {
-    fn parse(mut words: VecWindow<Word>) -> ParseResult<f64> {
-        let old_words = words.clone();
-        let integer = words.pop_first();
-        let dot = words.pop_first();
-        let decimal = words.pop_first();
-        if let (Some(integer), Some(dot), Some(decimal)) = (integer, dot, decimal) {
-            if !dot.get_word().is_some_and(|w| w == ".") {
-                return ParseResult(
-                    None,
-                    old_words,
-                    vec![ParseError {
-                        expected: "<<f64>>".to_string(),
-                        got: None,
-                    }],
-                );
-            };
-            let Some(integer) = integer.get_word() else {
-                return ParseResult(
-                    None,
-                    old_words,
-                    vec![ParseError {
-                        expected: "<<f64>>".to_string(),
-                        got: None,
-                    }],
-                );
-            };
-            let Some(decimal) = decimal.get_word() else {
-                return ParseResult(
-                    None,
-                    old_words,
-                    vec![ParseError {
-                        expected: "<<f64>>".to_string(),
-                        got: None,
-                    }],
-                );
-            };
-            let number = format!("{}.{}", integer, decimal);
-            match number.parse::<f64>() {
-                Ok(f) => ParseResult(Some(f), words, Vec::new()),
-                Err(_) => ParseResult(
-                    None,
-                    old_words,
-                    vec![ParseError {
-                        expected: "<<f64>>".to_string(),
-                        got: None,
-                    }],
-                ),
-            }
-        } else {
-            ParseResult(
-                None,
-                old_words,
-                vec![ParseError {
-                    expected: "<<f64>>".to_string(),
-                    got: None,
-                }],
-            )
-        }
+    fn parse(words: VecWindow<Word>) -> ParseResult<f64> {
+        parse_helper(words, "<<float>>", |word| {
+            word.get_word()?.parse::<f64>().ok()
+        })
     }
 }
 
@@ -271,11 +220,11 @@ pub struct TypeName {
 
 impl Parser<TypeName> for TypeName {
     fn parse(words: VecWindow<Word>) -> ParseResult<TypeName> {
-        parse_helper(words, "<<TypeName - PascalCase>>", |word| {
+        parse_helper(words, "<<TypeName>>", |word| {
             let text = word.get_word()?;
             let starts_uppercase = text.chars().next().is_some_and(|c| c.is_uppercase());
-            let all_alphabetic = text.chars().all(|c| c.is_alphabetic());
-            if starts_uppercase && all_alphabetic {
+            let all_alphanumeric = text.chars().all(|c| c.is_alphanumeric());
+            if starts_uppercase && all_alphanumeric {
                 Some(TypeName {
                     text: text.to_string(),
                     line_number: word.line,
@@ -361,10 +310,11 @@ pub struct ValueName {
 
 impl Parser<ValueName> for ValueName {
     fn parse(words: VecWindow<Word>) -> ParseResult<ValueName> {
-        parse_helper(words, "<<ValueName - snake_case>>", |word| {
+        parse_helper(words, "<<ValueName>>", |word| {
             let text = word.get_word()?;
-            let all_lowercase_or_underscore = text.chars().all(|c| c.is_lowercase() || c == '_');
-            if !text.is_empty() && all_lowercase_or_underscore {
+            let starts_lowercase = text.chars().next().is_some_and(|c| c.is_lowercase());
+            let all_lowercase_or_underscore_or_number = text.chars().all(|c| c.is_lowercase() || c == '_' || c.is_numeric());
+            if starts_lowercase && all_lowercase_or_underscore_or_number {
                 Some(ValueName {
                     text: text.to_string(),
                     line_number: word.line,

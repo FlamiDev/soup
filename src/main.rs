@@ -8,8 +8,8 @@ mod parser;
 
 fn main() {
     unsafe { backtrace_on_stack_overflow::enable() };
-    setup_logging(false);
-    
+    setup_logging();
+
     let mut args: VecDeque<String> = std::env::args().collect();
     args.pop_front();
     let Some(file) = args.pop_front() else {
@@ -35,6 +35,7 @@ fn main() {
         ],
     );
     let program = AST::parse((&words).into());
-    println!("{:#?}", program.0);
+    std::fs::write("output.txt", format!("{:#?}", program.0)).expect("Failed to write output file");
+    std::fs::write("errors.txt", format!("{:#?}", program.2)).expect("Failed to write errors file");
     show_errors(input.as_str(), program.2);
 }

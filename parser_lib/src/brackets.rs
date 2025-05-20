@@ -1,4 +1,4 @@
-use crate::{ParseError, ParseResult, Parser, VecWindow, Word};
+use crate::{log_end, log_eof, log_error, log_start, ParseError, ParseResult, Parser, VecWindow, Word};
 
 fn brackets_helper<B, T: Parser<T>>(
     mut words: VecWindow<Word>,
@@ -6,8 +6,9 @@ fn brackets_helper<B, T: Parser<T>>(
     end: char,
     create: fn(T) -> B,
 ) -> ParseResult<B> {
+    let type_name = format!("{}{}", start, end);
     let Some(first) = words.first() else {
-        log::debug!("! \"{}\" !! EOF", start);
+        log_eof(&type_name);
         return ParseResult(
             None,
             words.clone(),
@@ -18,7 +19,7 @@ fn brackets_helper<B, T: Parser<T>>(
         );
     };
     let Some(inner) = first.get_brackets(start, end) else {
-        log::debug!("! \"{}\" !! {}", start, first);
+        log_error(&type_name, first);
         return ParseResult(
             None,
             words.clone(),
@@ -28,10 +29,10 @@ fn brackets_helper<B, T: Parser<T>>(
             }],
         );
     };
-    log::info!("- \"{}\"", start);
+    log_start(&type_name);
     let ParseResult(inner_res, inner_words, errors) = T::parse(VecWindow::from(inner));
     if let Some(word) = inner_words.first() {
-        log::debug!("! \"{}\" - end_bracket !! {}", end, word);
+        log_error(&type_name, word);
         return ParseResult(
             None,
             words.clone(),
@@ -41,7 +42,7 @@ fn brackets_helper<B, T: Parser<T>>(
             }],
         );
     }
-    log::info!("> \"{}\"", end);
+    log_end(&type_name);
     words.pop_first();
     ParseResult(inner_res.map(create), words, errors)
 }

@@ -37,5 +37,5 @@ fn main() {
     let program = AST::parse((&words).into());
     std::fs::write("output.txt", format!("{:#?}", program.0)).expect("Failed to write output file");
     std::fs::write("errors.txt", format!("{:#?}", program.2)).expect("Failed to write errors file");
-    show_errors(input.as_str(), program.2);
+    show_errors(input.as_str(), program.2, true);
 }

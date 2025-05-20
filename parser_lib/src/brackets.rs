@@ -15,6 +15,7 @@ fn brackets_helper<B, T: Parser<T>>(
             vec![ParseError {
                 expected: start.to_string(),
                 got: None,
+                unlikely: false,
             }],
         );
     };
@@ -26,6 +27,7 @@ fn brackets_helper<B, T: Parser<T>>(
             vec![ParseError {
                 expected: start.to_string(),
                 got: Some(first.clone()),
+                unlikely: false,
             }],
         );
     };
@@ -39,6 +41,7 @@ fn brackets_helper<B, T: Parser<T>>(
             vec![ParseError {
                 expected: end.to_string(),
                 got: Some(word.clone()),
+                unlikely: false,
             }],
         );
     }

@@ -55,6 +55,13 @@ pub fn log_end(type_name: &str) {
 pub struct ParseError {
     pub expected: String,
     pub got: Option<Word>,
+    pub unlikely: bool,
+}
+
+impl ParseError {
+    pub fn pos(&self) -> (usize, usize) {
+        self.got.as_ref().map_or((0, 0), Word::pos)
+    }
 }
 
 #[derive(Debug)]
@@ -77,4 +84,30 @@ where
     T: Parser<T>,
 {
     T::parse(words)
+}
+
+pub fn flatten_branched_errors(errors: Vec<Vec<ParseError>>) -> Vec<ParseError> {
+    let mut deepest_branches = Vec::new();
+    let mut deepest_pos = (0, 0);
+    let mut total_error_count = 0;
+    for (i, errs) in errors.iter().enumerate() {
+        let depth = errs.iter().map(ParseError::pos).max().unwrap_or((0, 0));
+        if depth == deepest_pos {
+            deepest_branches.push(i);
+        } else if depth > deepest_pos {
+            deepest_pos = depth;
+            deepest_branches = vec![i];
+        }
+        total_error_count += errs.len();
+    }
+    let mut result_errors = Vec::with_capacity(total_error_count);
+    for (i, errs) in errors.into_iter().enumerate() {
+        for mut err in errs {
+            if !deepest_branches.contains(&i) {
+                err.unlikely = true;
+            }
+            result_errors.push(err);
+        }
+    }
+    result_errors
 }

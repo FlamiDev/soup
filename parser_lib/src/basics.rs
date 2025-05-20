@@ -23,6 +23,7 @@ fn parse_helper<'l, T>(
             vec![ParseError {
                 expected: type_name.to_string(),
                 got: None,
+                unlikely: false,
             }],
         );
     };
@@ -37,6 +38,7 @@ fn parse_helper<'l, T>(
             vec![ParseError {
                 expected: type_name.to_string(),
                 got: Some(word.clone()),
+                unlikely: false,
             }],
         )
     }

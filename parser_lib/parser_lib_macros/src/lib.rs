@@ -58,7 +58,7 @@ pub fn parser_macro(input: TokenStream) -> TokenStream {
                             parser_lib::log_end(#type_name);
                             return parser_lib::ParseResult(Some(res), new_words, new_errors);
                         }
-                        errors.extend(new_errors);
+                        errors.push(new_errors);
                     }
                 });
                 variant_parsers.push(quote! {
@@ -76,6 +76,7 @@ pub fn parser_macro(input: TokenStream) -> TokenStream {
                         #(
                             #variant_parser_calls
                         )*
+                        let errors = parser_lib::flatten_branched_errors(errors);
                         parser_lib::log_error(#type_name, &first_word);
                         let error_count_message = format!("errors.len() = {}", errors.len());
                         parser_lib::log_message(#type_name, &error_count_message);
@@ -226,6 +227,7 @@ fn parse_field(field: &syn::Field, type_name: String) -> (Option<String>, TokenS
                     return parser_lib::ParseResult(None, words, vec![parser_lib::ParseError {
                         expected: #val.to_string(),
                         got: first,
+                        unlikely: false,
                     }]);
                 }
             };

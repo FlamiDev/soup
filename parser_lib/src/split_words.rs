@@ -33,6 +33,9 @@ impl Word {
             }
         }
     }
+    pub fn pos(&self) -> (usize, usize) {
+        (self.line, self.column_from)
+    }
 }
 
 impl Display for Word {

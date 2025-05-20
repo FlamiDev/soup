@@ -46,6 +46,7 @@ impl<BY: SeparatedBySeparator, T: Parser<T>> Parser<SeparatedBy<BY, T>> for Sepa
                     errors.push(ParseError {
                         expected: BY::SEPARATOR.to_string(),
                         got: Some(word.clone()),
+                        unlikely: false,
                     });
                 }
             }
@@ -129,6 +130,7 @@ impl<BY: SeparatedBySeparator, A: Parser<A>, B: Parser<B>> Parser<SeparatedOnce<
                 vec![ParseError {
                     expected: BY::SEPARATOR.to_string(),
                     got: None,
+                    unlikely: false,
                 }],
             );
         };
@@ -143,6 +145,7 @@ impl<BY: SeparatedBySeparator, A: Parser<A>, B: Parser<B>> Parser<SeparatedOnce<
             errors.push(ParseError {
                 expected: BY::SEPARATOR.to_string(),
                 got: Some(word.clone()),
+                unlikely: false,
             });
             return ParseResult(None, words, errors);
         }
@@ -215,6 +218,7 @@ impl<T: Parser<T>> Parser<StatementVec<T>> for StatementVec<T> {
                     errors.push(ParseError {
                         expected: "[end of statement]".to_string(),
                         got: Some(word.clone()),
+                        unlikely: false,
                     });
                 }
             }

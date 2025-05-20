@@ -2,9 +2,9 @@ use parser_lib::ParseError;
 use std::collections::HashMap;
 use yansi::Paint;
 
-pub fn show_errors(code: &str, errors: Vec<ParseError>) {
+pub fn show_errors(code: &str, errors: Vec<ParseError>, skip_unlikely: bool) {
     let mut error_file = ErrorFile::new(code);
-    error_file.insert_all(errors);
+    error_file.insert_all(errors, skip_unlikely);
     error_file.print_errors();
 }
 
@@ -83,8 +83,11 @@ impl<'l> ErrorFile<'l> {
         }
     }
 
-    fn insert_all(&mut self, errors: Vec<ParseError>) {
+    fn insert_all(&mut self, errors: Vec<ParseError>, skip_unlikely: bool) {
         for err in errors {
+            if skip_unlikely && err.unlikely {
+                continue;
+            }
             self.insert(err);
         }
     }

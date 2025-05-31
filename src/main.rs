@@ -1,14 +1,13 @@
 use crate::errors::show_errors;
 use crate::parser::AST;
-use parser_lib::{setup_logging, split_words, BracketPair, Parser};
+use parser_lib::{split_words, BracketPair, Parser};
 use std::collections::VecDeque;
 
 mod errors;
 mod parser;
 
 fn main() {
-    unsafe { backtrace_on_stack_overflow::enable() };
-    setup_logging();
+    // setup_logging();
 
     let mut args: VecDeque<String> = std::env::args().collect();
     args.pop_front();

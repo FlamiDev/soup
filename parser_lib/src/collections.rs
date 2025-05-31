@@ -69,7 +69,7 @@ impl<T: Parser<T>> Parser<NonEmptyVec<T>> for NonEmptyVec<T> {
             if let Some(item) = item {
                 errors.extend(new_errors);
                 res.push(item);
-                log_message("Vec", "---");
+                log_message("NonEmptyVec", "---");
             } else {
                 if !res.is_empty() {
                     break;

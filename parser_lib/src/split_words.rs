@@ -119,7 +119,8 @@ pub fn split_words(text: &str, brackets: Vec<BracketPair>) -> Vec<Word> {
             let is_same_word_type = (last.is_alphanumeric() == character.is_alphanumeric())
                 || character == '_'
                 || last == '_';
-            let is_number_period = last.is_numeric() && character == '.' || last == '.' && character.is_numeric();
+            let is_number_period =
+                last.is_numeric() && character == '.' || last == '.' && character.is_numeric();
             let same_word = is_number_period || !is_or_was_bracket && is_same_word_type;
             if same_word {
                 current_text.push(character);

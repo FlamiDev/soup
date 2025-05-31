@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 use std::fmt::Debug;
 use std::io::Write;
 
@@ -101,13 +103,18 @@ pub fn flatten_branched_errors(errors: Vec<Vec<ParseError>>) -> Vec<ParseError> 
         total_error_count += errs.len();
     }
     let mut result_errors = Vec::with_capacity(total_error_count);
+    let mut pos_string = String::new();
     for (i, errs) in errors.into_iter().enumerate() {
         for mut err in errs {
             if !deepest_branches.contains(&i) {
                 err.unlikely = true;
             }
+            if log::log_enabled!(log::Level::Debug) {
+                pos_string.push_str(format!("{}:{} {} ", err.pos().0, err.pos().1, err.got.as_ref().map_or_else(String::new, Word::display_text)).as_str());
+            }
             result_errors.push(err);
         }
     }
+    log::debug!("\x1b[35m{:25} {}\x1b[0m", "Flattening", pos_string);
     result_errors
 }

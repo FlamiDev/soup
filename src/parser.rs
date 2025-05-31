@@ -111,14 +111,14 @@ pub enum Type {
     Match {
         on: TypeOrValue,
         #[text = ":"]
-        matchers: NonEmptyVec<Matcher<TypeOrValue, Type>>,
+        matchers: StatementVec<Matcher<TypeOrValue, Type>>,
     },
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
 pub enum TypeOrValue {
     Type(TypeRef),
-    Value(ValueName),
+    Value(Value),
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]

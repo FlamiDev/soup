@@ -9,7 +9,7 @@ typ pub Option A =
 // use a more specific type if you think you need a named field
 typ pub Vec T { len U32 } = len :
     | 0 -> {}
-    | len -> { T; Vec T { len (len - 1) } }
+    | len -> { T; Vec T { len (len sub 1) } }
 
 def pub map A B = Vec A -> (A -> B) -> Vec B
 let map = items mapper ->

@@ -119,6 +119,8 @@ impl<BY: SeparatedBySeparator, A: Parser<A>, B: Parser<B>> Parser<SeparatedOnce<
 {
     fn parse(words: VecWindow<Word>) -> ParseResult<SeparatedOnce<BY, A, B>> {
         let type_name = format!("SeparatedOnce<{}>", BY::SEPARATOR);
+        log_start(&type_name);
+        println!("{:?}", words);
         let Some((first, second)) = words
             .clone()
             .split_once(|word| word.get_word().is_some_and(|t| t == BY::SEPARATOR))
@@ -194,11 +196,11 @@ mod test_separated_once {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StatementVec<T>(Vec<T>);
+pub struct StartTextVec<T>(Vec<T>);
 
-impl<T: Parser<T>> Parser<StatementVec<T>> for StatementVec<T> {
-    fn parse(words: VecWindow<Word>) -> ParseResult<StatementVec<T>> {
-        log_start("StatementVec");
+impl<T: Parser<T>> Parser<StartTextVec<T>> for StartTextVec<T> {
+    fn parse(words: VecWindow<Word>) -> ParseResult<StartTextVec<T>> {
+        log_start("StartTextVec");
         let statement_keywords = T::starting_keywords();
         let parts = words.clone().split_including_start(|word| {
             statement_keywords.contains(&word.get_word().unwrap_or(""))
@@ -214,7 +216,7 @@ impl<T: Parser<T>> Parser<StatementVec<T>> for StatementVec<T> {
             }
             if no_errors && !new_words.is_empty() {
                 if let Some(word) = new_words.first() {
-                    log_error("StatementVec", &word);
+                    log_error("StartTextVec", &word);
                     errors.push(ParseError {
                         expected: "[end of statement]".to_string(),
                         got: Some(word.clone()),
@@ -223,8 +225,8 @@ impl<T: Parser<T>> Parser<StatementVec<T>> for StatementVec<T> {
                 }
             }
         }
-        log_end("StatementVec");
-        ParseResult(Some(StatementVec(res)), words.empty(), errors)
+        log_end("StartTextVec");
+        ParseResult(Some(StartTextVec(res)), words.empty(), errors)
     }
 }
 
@@ -246,7 +248,7 @@ mod test_statement_vec {
     fn valid() {
         let input = "int 1 int 2 int 3";
         let words = split_words(input, vec![]);
-        let ParseResult(res, words, errors) = StatementVec::<FancyInt>::parse((&words).into());
+        let ParseResult(res, words, errors) = StartTextVec::<FancyInt>::parse((&words).into());
         let value = res.unwrap();
         assert_eq!(value.0.len(), 3);
         assert_eq!(value.0[0].value, 1);
@@ -260,7 +262,7 @@ mod test_statement_vec {
     fn invalid() {
         let input = "int 1 int 2 int";
         let words = split_words(input, vec![]);
-        let ParseResult(res, words, errors) = StatementVec::<FancyInt>::parse((&words).into());
+        let ParseResult(res, words, errors) = StartTextVec::<FancyInt>::parse((&words).into());
         let value = res.unwrap();
         assert_eq!(value.0.len(), 2);
         assert_eq!(value.0[0].value, 1);
@@ -268,5 +270,29 @@ mod test_statement_vec {
         assert_eq!(words.size(), 0);
         println!("errors: {:?}", errors);
         assert_eq!(errors.len(), 1);
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NonEmptyStartTextVec<T>(Vec<T>);
+
+impl <T: Parser<T>> Parser<NonEmptyStartTextVec<T>> for NonEmptyStartTextVec<T> {
+    fn parse(words: VecWindow<Word>) -> ParseResult<NonEmptyStartTextVec<T>> {
+        let ParseResult(res, words, errors) = StartTextVec::<T>::parse(words);
+        if let Some(ref res) = res {
+            if res.0.is_empty() {
+                log_error("NonEmptyStartTextVec", &words.first());
+                return ParseResult(
+                    None,
+                    words,
+                    errors,
+                );
+            }
+        }
+        ParseResult(
+            res.map(|r| NonEmptyStartTextVec(r.0)),
+            words,
+            errors,
+        )
     }
 }

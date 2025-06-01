@@ -1,6 +1,6 @@
 use parser_lib::{
-    separator, CurlyBrackets, NonEmptyVec, Parentheses, Parser, SeparatedBy, SeparatedOnce,
-    SquareBrackets, StatementVec, TypeName, ValueName,
+    separator, CurlyBrackets, NonEmptyStartTextVec, NonEmptyVec, Parentheses, Parser, SeparatedBy,
+    SeparatedOnce, SquareBrackets, StartTextVec, TypeName, ValueName,
 };
 
 separator!(Comma = ",");
@@ -11,7 +11,7 @@ separator!(ArrowRight = "->");
 #[derive(Clone, Debug, PartialEq, Parser)]
 #[allow(clippy::upper_case_acronyms)]
 pub struct AST {
-    pub items: StatementVec<Declaration>,
+    pub items: StartTextVec<Declaration>,
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
@@ -32,7 +32,7 @@ pub enum Declaration {
         type_args: Vec<TypeName>,
         dependencies: Option<CurlyBrackets<SeparatedBy<Semicolon, TypedValue>>>,
         #[text = "="]
-        value: Type,
+        value: GreedyType,
     },
     Has {
         #[text = "has"]
@@ -47,13 +47,13 @@ pub enum Declaration {
         name: ValueName,
         type_args: Vec<TypeName>,
         #[text = "="]
-        value: TypeRef,
+        value: GreedyTypeRef,
     },
     Let {
         #[text = "let"]
         name: ValueName,
         #[text = "="]
-        be: Box<Value>,
+        be: Box<GreedyValue>,
     },
 }
 
@@ -70,55 +70,62 @@ pub struct PubToken {
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
-pub enum TypeRef {
-    Function(SeparatedOnce<ArrowRight, Box<TypeRef>, Box<TypeRef>>),
-    InParens(Parentheses<Box<TypeRef>>),
-    WithDependencies {
+pub enum NonGreedyTypeRef {
+    InParens(Parentheses<Box<GreedyTypeRef>>),
+    Name(TypeName),
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub enum GreedyTypeRef {
+    Function(SeparatedOnce<ArrowRight, Box<GreedyTypeRef>, Box<GreedyTypeRef>>),
+    Dependencies {
         type_: TypeName,
-        args: Vec<TypeRef>,
-        dependencies: CurlyBrackets<SeparatedBy<Semicolon, (ValueName, Value)>>,
+        args: Vec<NonGreedyTypeRef>,
+        dependencies: CurlyBrackets<SeparatedBy<Semicolon, (ValueName, GreedyValue)>>,
     },
-    Raw {
+    Args {
         type_: TypeName,
-        args: Vec<TypeRef>,
+        args: Vec<NonGreedyTypeRef>,
     },
+    NonGreedy(NonGreedyTypeRef),
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
 pub struct TypedValue {
     name: ValueName,
-    type_: TypeRef,
+    type_: GreedyTypeRef,
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
 pub struct HasRequirement {
     name: ValueName,
     #[text = "=>"]
-    type_: TypeRef,
+    type_: GreedyTypeRef,
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
 pub struct UnionOption {
     #[text = "|"]
     name: TypeName,
-    value: Option<TypeRef>,
+    value: Option<GreedyTypeRef>,
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
-pub enum Type {
-    Union(NonEmptyVec<UnionOption>),
-    Tuple(CurlyBrackets<SeparatedBy<Semicolon, TypeRef>>),
+pub enum GreedyType {
+    Union(NonEmptyStartTextVec<UnionOption>),
+    Tuple(CurlyBrackets<SeparatedBy<Semicolon, GreedyTypeRef>>),
     Match {
         on: TypeOrValue,
         #[text = ":"]
-        matchers: StatementVec<Matcher<TypeOrValue, Type>>,
+        matchers: NonEmptyStartTextVec<Matcher<TypeOrValue, GreedyType>>,
     },
+    Ref(GreedyTypeRef),
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
 pub enum TypeOrValue {
-    Type(TypeRef),
-    Value(Value),
+    Type(GreedyTypeRef),
+    Value(NonGreedyValue),
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
@@ -147,22 +154,35 @@ where
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
-pub enum Value {
-    InParens(Parentheses<Box<Value>>),
-    List(SquareBrackets<SeparatedBy<Semicolon, Value>>),
-    MatchSequence(SeparatedOnce<Colon, Box<Value>, NonEmptyVec<Matcher<ValueName, Value>>>),
-    CallSequence(SeparatedOnce<Comma, CallsStart, SeparatedBy<Comma, CallsContinue>>),
+pub enum NonGreedyValue {
+    InParens(Parentheses<Box<GreedyValue>>),
+    List(SquareBrackets<SeparatedBy<Semicolon, GreedyValue>>),
+    Tuple(CurlyBrackets<SeparatedBy<Semicolon, GreedyValue>>),
     Boolean(bool),
     Int(i64),
     Float(f64),
     String(String),
+    Ref(ValueName),
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub enum GreedyValue {
     Function {
         args: NonEmptyVec<ValueName>,
         #[text = "->"]
-        returns: Box<Value>,
-        with: Vec<FunctionWithBlock>,
+        returns: Box<GreedyValue>,
+        with: StartTextVec<FunctionWithBlock>,
     },
-    Ref(ValueName),
+    CallSequence {
+        start: CallsStart,
+        continue_calls: Vec<CallsContinue>,
+        maybe_match: Option<MatchValue>,
+    },
+    SimpleMatch {
+        on: NonGreedyValue,
+        match_: MatchValue,
+    },
+    NonGreedy(NonGreedyValue),
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
@@ -170,18 +190,25 @@ pub struct FunctionWithBlock {
     #[text = "<-"]
     name: ValueName,
     #[text = "="]
-    block: Box<Value>,
+    block: Box<GreedyValue>,
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
 pub struct CallsStart {
-    initial: Box<Value>,
+    initial: NonGreedyValue,
     function: ValueName,
-    args: Vec<Value>,
+    args: Vec<NonGreedyValue>,
 }
 
 #[derive(Clone, Debug, PartialEq, Parser)]
 pub struct CallsContinue {
+    #[text = ","]
     function: ValueName,
-    args: Vec<Value>,
+    args: Vec<NonGreedyValue>,
+}
+
+#[derive(Clone, Debug, PartialEq, Parser)]
+pub struct MatchValue {
+    #[text = ":"]
+    matchers: StartTextVec<Matcher<ValueName, GreedyValue>>,
 }

@@ -1,0 +1,3 @@
+[submodule "cauldron"]
+	path = cauldron
+	url = git@github.com:FlamiDev/cauldron.git

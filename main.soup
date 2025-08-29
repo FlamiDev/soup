@@ -1,0 +1,96 @@
+// prelude
+// typ pub means allowed to construct from outside this file
+// types always start with a capital letter, values with a lowercase letter
+typ pub Option A =
+    | Some A
+    | None
+
+// dependent typing
+// first the type name and type arguments,
+// then the value arguments and their types
+// also {} is a tuple type and they can't have named fields
+// use a more specific type if you think you need a named field
+typ pub Vec T len U32 = len :
+    | 0 -> {}
+    | _ -> { T; Vec T (len, sub 1) }
+
+// as you see, function calls always start with `,` followed by the function name and its arguments
+// the value before the `,` is the first argument, so function calls are always pipelined
+// omitting the value before the `,` creates an anonymous function
+def pub map A B = Vec A -> (A -> B) -> Vec B
+let map = items mapper ->
+    items, head:
+        | { first; rest } -> { first, mapper; rest, map mapper }
+        | {} -> {}
+
+// no type definition is fine
+// but cannot be public
+// because that would make inference sad
+// also, <- is for temporary variables
+// especially useful for calculations you use multiple times
+let some_func = a b ->
+    foo, some_calc bar
+    <- foo = a, add b
+    <- bar = 42
+
+// constants
+let pi_approx = 3.14159
+
+// traits (type classes)
+has Order =
+    greater => Self -> Self -> Bool
+    less => Self -> Self -> Bool
+
+// importing modules
+// always required to be inside `{}`
+// also, functions starting with `d_` are dirty
+// this means they are not pure and may have side effects
+// any function calling a `d_` function is also dirty
+// this forces you to think about side effects
+// and keeps business logic pure
+// the only function violating this is `debug` which logs a value and also returns it
+// this is purely so you can debug pure functions easier
+use { d_readline } "io"
+
+// cat is a function that concatenates strings
+doc "Ask a question in the console and return the answer"
+def d_ask = String -> String
+let d_ask = question ->
+    question, cat " > ", readline
+
+use { sum } "iter"
+
+def pub sum_squares N = Vec N -> N
+    where N Number
+let sum_squares = numbers ->
+    numbers map (, pow 2), sum
+
+// calling wasm target from js target
+// loading different targets is done automatically if possible
+// for other targets where autoloading is not possible,
+// syntax is still undecided
+def call_wasm_test = U64 -> #target["wasm"] (U64 -> I32) -> I32
+let call_wasm_test = value func -> value, func
+
+def tuple_to_string T = T -> String
+let tuple_to_string = tuple -> tuple:
+    | { first; @rest } -> first, to_string, cat ", ", cat (rest, tuple_to_string)
+    // rest can be empty, then it hits the base case
+    | {} -> ""
+
+// this function ignores errors entirely
+// because it is just a syntax test and I don't want to make it even more complicated
+// soup cannot crash, so this would not compile in a real project
+// as any parse function would return an Option type
+def string_to_tuple T = String -> T
+let string_to_tuple = string -> T:
+    // uncertain if this is the best way to do this
+    // but as we need to be able to get a function with a known return type
+    // this is the best way I could think of for now
+    | { Type } -> { string, parse\Type }
+    | { Type; @Rest } -> (
+        string, split_once ", ":
+            | { first; rest } -> { first, parse\Type; @(rest, string_to_tuple\Rest) }
+        )
+    // just for handling empty tuple types
+    | {} -> {}

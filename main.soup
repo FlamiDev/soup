@@ -20,13 +20,19 @@ let map = [items mapper] items:
 
 let pi_approx = 3.14159
 
-// io is like zig, also has io.default as generic implementation
+/ io is like zig, also has io.default as generic implementation
 use "io" io [IO]
 
 doc "Ask a question in the console and return the answer"
 def ask = [String IO] String
 let ask = [question io]
-    (question ; " > "), io.readline
+    (question ; " > "), < making a prompt > io.readline
+< yes, this is a block comment >
+
+<
+| multiline is
+| also allowed
+>
 
 use "iter" [sum]
 def pub sum_squares = [Vec Number] Number

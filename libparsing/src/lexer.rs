@@ -2,7 +2,7 @@ use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::panic::panic_any;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Lexeme<'l, Token> {
     pub token: Token,
     pub line: (usize, usize),

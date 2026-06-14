@@ -24,14 +24,17 @@ impl<'l, T> Walker<'l, T> {
         }
         self.current()
     }
-    pub fn split(self) -> (Self, Self) {
-        (
-            Self {
-                items: self.items,
-                len: self.len,
-                pos: 0,
-            },
-            self,
-        )
+    pub fn drop_tail(&mut self) -> Self {
+        let tail = Self {
+            items: &self.items[..self.pos],
+            len: self.pos,
+            pos: 0,
+        };
+        self.items = &self.items[self.pos..];
+        self.pos = 0;
+        tail
+    }
+    pub fn reset(&mut self) {
+        self.pos = 0;
     }
 }

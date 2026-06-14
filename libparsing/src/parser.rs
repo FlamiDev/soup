@@ -1,39 +1,58 @@
 use crate::lexer::Lexeme;
+use crate::parse_error::ParseResult;
 use crate::walker::Walker;
 
-pub trait Parser<'l, Token, Ast>: (Fn(Walker<Lexeme<'l, Token>>) -> Ast) + Clone {}
-impl<'l, Token, Ast, F: (Fn(Walker<Lexeme<'l, Token>>) -> Ast) + Clone> Parser<'l, Token, Ast>
-    for F
+pub trait Parser<'l, Token: 'l, T>:
+    (Fn(Walker<'l, Lexeme<'l, Token>>) -> ParseResult<'l, Token, T>) + Clone
+{
+}
+impl<'l, Token: 'l, T, F: (Fn(Walker<'l, Lexeme<'l, Token>>) -> ParseResult<'l, Token, T>) + Clone>
+    Parser<'l, Token, T> for F
 {
 }
 
-pub fn parse<'l, Token: PartialEq, Ast>(
-    tokens: Vec<Lexeme<'l, Token>>,
-    parser: impl Parser<'l, Token, Ast>,
-) -> Ast {
+pub fn parse<'l, Token: 'l + PartialEq, T>(
+    tokens: &'l [Lexeme<'l, Token>],
+    parser: impl Parser<'l, Token, T>,
+) -> ParseResult<'l, Token, T> {
     let tokens = Walker::new(&tokens);
     parser(tokens)
 }
 
-pub fn split<'l, Token: PartialEq, A, B>(
+pub fn split<'l, Token: 'l + PartialEq, A, B>(
     on: &[Token],
     then: impl Parser<'l, Token, A>,
-    combine: impl (Fn(&[A]) -> B) + Clone,
+    combine: impl (Fn(Vec<A>) -> B) + Clone,
 ) -> impl Parser<'l, Token, B> {
     move |mut walker| {
         let mut split = vec![];
         loop {
+            walker.next();
             let Some(current) = walker.current() else {
                 break;
             };
             if on.contains(&current.token) {
-                let (start, new_walker) = walker.split();
-                split.push(start);
-                walker = new_walker;
+                split.push(walker.drop_tail());
             }
-            walker.next();
         }
+        walker.reset();
         split.push(walker);
-        combine(&split.into_iter().map(then.clone()).collect::<Vec<A>>())
+        let parsed = split
+            .into_iter()
+            .map(then.clone())
+            .collect::<Vec<ParseResult<'l, Token, A>>>();
+        if parsed.iter().any(|it| it.is_err()) {
+            return Err(parsed
+                .into_iter()
+                .filter_map(|it| it.err())
+                .flatten()
+                .collect());
+        }
+        Ok(combine(
+            parsed
+                .into_iter()
+                .filter_map(|it| it.ok())
+                .collect::<Vec<A>>(),
+        ))
     }
 }

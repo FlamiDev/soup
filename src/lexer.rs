@@ -1,12 +1,7 @@
 use crate::token::Token;
 use libparsing::lexer;
 use libparsing::lexer::Lexeme;
-
-macro_rules! map {
-    ($($k:expr => $v:expr),* $(,)?) => {{
-        core::convert::From::from([$(($k, $v),)*])
-    }};
-}
+use crate::map;
 
 pub fn lex(input: &str) -> Vec<Lexeme<'_, Token>> {
     lexer::lex(

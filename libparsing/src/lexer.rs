@@ -4,10 +4,10 @@ use std::panic::panic_any;
 
 #[derive(Debug)]
 pub struct Lexeme<'l, Token> {
-    token: Token,
-    line: (usize, usize),
-    column: (usize, usize),
-    source: &'l str,
+    pub token: Token,
+    pub line: (usize, usize),
+    pub column: (usize, usize),
+    pub source: &'l str,
 }
 
 #[derive(PartialEq, Copy, Clone)]
@@ -51,6 +51,7 @@ fn char_to_lexing_state(
 pub fn lex<'l, Token: Copy>(
     source: &'l str,
     symbols: HashMap<&'static str, Token>,
+    keywords: HashMap<&'static str, Token>,
     uppercase: Token,
     lowercase: Token,
     string: Token,
@@ -132,7 +133,18 @@ pub fn lex<'l, Token: Copy>(
                 }
             }
             LexingState::Number => {}
-            LexingState::Ident { .. } => {}
+            LexingState::Ident { .. } => {
+                let token = keywords.get(&source[index_from..=i]);
+                if let Some(token) = token {
+                    lexemes.push(Lexeme {
+                        token: *token,
+                        line: (line_from, line),
+                        column: (column_from, column),
+                        source: &source[index_from..=i],
+                    });
+                    state = LexingState::None;
+                }
+            }
             LexingState::Comment { block } => {
                 if block {
                     let Some((_, end)) = block_comment else {

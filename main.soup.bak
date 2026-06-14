@@ -1,0 +1,84 @@
+// prelude
+// typ pub means allowed to construct from outside this file
+// types always start with a capital letter, values with a lowercase letter
+typ pub Option A =
+    | Some A
+    | None
+
+typ pub Vec T = T; Option (@Vec T)
+
+// as you see, function calls always start with `,` followed by the function name and its arguments
+// the value before the `,` is the first argument, so function calls are always pipelined
+def pub map A B = Vec A -> (A -> B) -> Vec B
+let map = items mapper ->
+    items:
+        | first; Some rest -> first, mapper; rest, map mapper
+        | last; None -> last, mapper; None
+
+// no type definition is fine
+// but cannot be public
+// because that would make inference sad
+let pi_approx = 3.14159
+
+// traits (type classes)
+has Order =
+    greater => Self -> Self -> Bool
+    less => Self -> Self -> Bool
+
+// importing modules
+// also, functions starting with `d_` are dirty
+// this means they are not pure and may have side effects
+// any function calling a `d_` function is also dirty
+// this forces you to think about side effects
+// and keeps business logic pure
+// the only function violating this is `debug` which logs a value and also returns it
+// this is purely so you can debug pure functions easier
+use "io" d_readline cat
+
+// cat is a function that concatenates strings
+doc "Ask a question in the console and return the answer"
+def d_ask = String -> String
+let d_ask = question ->
+    question, cat " > ", readline
+
+use "iter" sum
+def pub sum_squares = Vec Number -> Number
+let sum_squares = numbers ->
+// omitting the value before the `,` creates an anonymous function
+    numbers map (, pow 2), sum
+
+// calling wasm target from js target
+// loading different targets is done automatically if possible
+// for other targets where autoloading is not possible,
+// syntax is still undecided
+def call_wasm_test = U64 -> #target[wasm] (U64 -> I32) -> I32
+let call_wasm_test = value func -> value, func
+
+typ SimpleTuple = Number; String; Bool
+def test_tuple = SimpleTuple
+let test_tuple = 42; "Hello, World!"; true
+
+def tuple_to_string T = T -> String
+let tuple_to_string = tuple -> tuple:
+    | first; rest  -> first, to_string, cat ", ", cat (rest, tuple_to_string)
+    | last -> last, to_string
+
+test "tuple to string" =
+    test_tuple, tuple_to_string
+    = "42, Hello, World!, true"
+
+def string_to_tuple T = String -> Option T
+let string_to_tuple = string -> T:
+    | Type&FromString -> string, parse Type
+    | Type&FromString; Rest ->
+        // doesn't need parentheses because it's the last branch
+        // compiler always assumes the last match, so normally
+        // parentheses would be used to continue the outer match
+        string, split_once ", ":
+            // the . before first_res and rest_res is equivalent to
+            // putting the rest of the definition in parentheses
+            // this is done because this is a very common pattern
+            // it prevents ending up with lots of closing parentheses
+            | first; rest -> first, parse Type, map . first_res ->
+                rest, string_to_tuple Rest, map . rest_res ->
+                    first_res; rest_res
